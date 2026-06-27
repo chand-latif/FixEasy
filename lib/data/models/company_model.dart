@@ -1,7 +1,6 @@
-/// Company model representing a service provider's company profile.
 class CompanyModel {
   final int companyId;
-  final int userId;
+  final String userId; // UUID
   final String companyName;
   final String? companyDescription;
   final String? companyLogo;
@@ -32,61 +31,52 @@ class CompanyModel {
     this.createdAt,
   });
 
-  /// Get full logo URL
   String get logoUrl {
     if (companyLogo == null || companyLogo!.isEmpty) return '';
-    if (companyLogo!.startsWith('http')) return companyLogo!;
-    return 'https://fixease.pk$companyLogo';
+    return companyLogo!;
   }
 
-  /// Formatted rating string
   String get formattedRating => averageRating.toStringAsFixed(1);
 
-  /// Create CompanyModel from API JSON response
   factory CompanyModel.fromJson(Map<String, dynamic> json) {
     return CompanyModel(
-      companyId: json['companyId'] ?? 0,
-      userId: json['userId'] ?? 0,
-      companyName: json['companyName'] ?? '',
-      companyDescription: json['companyDescription'],
-      companyLogo: json['companyLogo'],
-      companyAddress: json['companyAddress'],
-      companyPhone: json['companyPhone'],
-      companyEmail: json['companyEmail'],
+      companyId: json['id'] ?? json['companyId'] ?? 0,
+      userId: json['user_id'] ?? json['userId'] ?? '',
+      companyName: json['company_name'] ?? json['companyName'] ?? '',
+      companyDescription: json['description'] ?? json['companyDescription'],
+      companyLogo: json['logo'] ?? json['companyLogo'],
+      companyAddress: json['address'] ?? json['companyAddress'],
+      companyPhone: json['phone'] ?? json['companyPhone'],
+      companyEmail: json['email'] ?? json['companyEmail'],
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
       servicesCount: json['servicesCount'],
       averageRating: (json['averageRating'] as num?)?.toDouble() ?? 0.0,
       totalRatings: json['totalRatings'] ?? 0,
-      createdAt: json['createdAt'] != null 
-          ? DateTime.tryParse(json['createdAt']) 
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'])
           : null,
     );
   }
 
-  /// Convert CompanyModel to JSON
   Map<String, dynamic> toJson() {
     return {
-      'companyId': companyId,
-      'userId': userId,
-      'companyName': companyName,
-      'companyDescription': companyDescription,
-      'companyLogo': companyLogo,
-      'companyAddress': companyAddress,
-      'companyPhone': companyPhone,
-      'companyEmail': companyEmail,
+      'id': companyId,
+      'user_id': userId,
+      'company_name': companyName,
+      'description': companyDescription,
+      'logo': companyLogo,
+      'address': companyAddress,
+      'phone': companyPhone,
+      'email': companyEmail,
       'latitude': latitude,
       'longitude': longitude,
-      'servicesCount': servicesCount,
-      'averageRating': averageRating,
-      'totalRatings': totalRatings,
     };
   }
 
-  /// Create a copy with modified fields
   CompanyModel copyWith({
     int? companyId,
-    int? userId,
+    String? userId,
     String? companyName,
     String? companyDescription,
     String? companyLogo,

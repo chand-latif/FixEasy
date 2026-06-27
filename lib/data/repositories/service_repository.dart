@@ -1,50 +1,61 @@
-import '../../core/constants/api_constants.dart';
-import '../../core/network/api_client.dart';
+import 'dart:io';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/service_model.dart';
 import '../models/review_model.dart';
 
-/// Repository handling all service-related API calls.
 class ServiceRepository {
-  final ApiClient _apiClient;
+  SupabaseClient get _supabase => Supabase.instance.client;
 
-  ServiceRepository({required ApiClient apiClient}) : _apiClient = apiClient;
-
-  /// Get published services for a company
   Future<List<ServiceModel>> getPublishedServices(int companyId) async {
-    final response = await _apiClient.get(
-      ApiConstants.publishedServices,
-      queryParams: {'CompanyId': companyId},
-      includeAuth: false,
-    );
+    final response = await _supabase
+        .from('services')
+        .select('*, categories(name), company_profiles(company_name, logo)')
+        .eq('company_id', companyId)
+        .eq('is_published', true)
+        .order('created_at', ascending: false);
 
-    final List<dynamic> data = response['data'] ?? [];
-    return data.map((json) => ServiceModel.fromJson(json)).toList();
+    return (response as List)
+        .map((json) => ServiceModel.fromJson(json))
+        .toList();
   }
 
-  /// Get all services for a company (including unpublished - for seller)
   Future<List<ServiceModel>> getAllCompanyServices(int companyId) async {
-    final response = await _apiClient.get(
-      ApiConstants.allServices,
-      queryParams: {'CompanyId': companyId},
-    );
+    final response = await _supabase
+        .from('services')
+        .select('*, categories(name), company_profiles(company_name, logo)')
+        .eq('company_id', companyId)
+        .order('created_at', ascending: false);
 
-    final List<dynamic> data = response['data'] ?? [];
-    return data.map((json) => ServiceModel.fromJson(json)).toList();
+    return (response as List)
+        .map((json) => ServiceModel.fromJson(json))
+        .toList();
   }
 
-  /// Get services by category
   Future<List<ServiceModel>> getServicesByCategory(int categoryId) async {
-    final response = await _apiClient.get(
-      ApiConstants.servicesByCategory,
-      queryParams: {'CategoryId': categoryId},
-      includeAuth: false,
-    );
+    final response = await _supabase
+        .from('services')
+        .select('*, categories(name), company_profiles(company_name, logo)')
+        .eq('category_id', categoryId)
+        .eq('is_published', true)
+        .order('created_at', ascending: false);
 
-    final List<dynamic> data = response['data'] ?? [];
-    return data.map((json) => ServiceModel.fromJson(json)).toList();
+    return (response as List)
+        .map((json) => ServiceModel.fromJson(json))
+        .toList();
   }
 
-  /// Create a new service
+  Future<List<ServiceModel>> getAllPublishedServices() async {
+    final response = await _supabase
+        .from('services')
+        .select('*, categories(name), company_profiles(company_name, logo)')
+        .eq('is_published', true)
+        .order('created_at', ascending: false);
+
+    return (response as List)
+        .map((json) => ServiceModel.fromJson(json))
+        .toList();
+  }
+
   Future<ServiceModel> createService({
     required int companyId,
     required String serviceName,
@@ -53,22 +64,22 @@ class ServiceRepository {
     required int categoryId,
     bool isPublished = true,
   }) async {
-    final response = await _apiClient.post(
-      ApiConstants.createService,
-      body: {
-        'companyId': companyId,
-        'companyServiceName': serviceName,
-        'companyServiceDescription': serviceDescription,
-        'companyServicePrice': price,
-        'serviceCategoryId': categoryId,
-        'companyServiceStatus': isPublished ? 'Published' : 'Draft',
-      },
-    );
+    final response = await _supabase
+        .from('services')
+        .insert({
+          'company_id': companyId,
+          'name': serviceName,
+          'description': serviceDescription,
+          'price': price,
+          'category_id': categoryId,
+          'is_published': isPublished,
+        })
+        .select('*, categories(name), company_profiles(company_name, logo)')
+        .single();
 
-    return ServiceModel.fromJson(response['data']);
+    return ServiceModel.fromJson(response);
   }
 
-  /// Update an existing service
   Future<ServiceModel> updateService({
     required int serviceId,
     String? serviceName,
@@ -77,69 +88,84 @@ class ServiceRepository {
     int? categoryId,
     bool? isPublished,
   }) async {
-    final response = await _apiClient.put(
-      ApiConstants.updateService,
-      body: {
-        'companyServiceId': serviceId,
-        if (serviceName != null) 'companyServiceName': serviceName,
-        if (serviceDescription != null) 'companyServiceDescription': serviceDescription,
-        if (price != null) 'companyServicePrice': price,
-        if (categoryId != null) 'serviceCategoryId': categoryId,
-        if (isPublished != null) 'companyServiceStatus': isPublished ? 'Published' : 'Draft',
-      },
-    );
+    final response = await _supabase
+        .from('services')
+        .update({
+          if (serviceName != null) 'name': serviceName,
+          if (serviceDescription != null) 'description': serviceDescription,
+          if (price != null) 'price': price,
+          if (categoryId != null) 'category_id': categoryId,
+          if (isPublished != null) 'is_published': isPublished,
+        })
+        .eq('id', serviceId)
+        .select('*, categories(name), company_profiles(company_name, logo)')
+        .single();
 
-    return ServiceModel.fromJson(response['data']);
+    return ServiceModel.fromJson(response);
   }
 
-  /// Delete a service
   Future<void> deleteService(int serviceId) async {
-    await _apiClient.delete(
-      ApiConstants.deleteService,
-      queryParams: {'CompanyServiceId': serviceId},
-    );
+    await _supabase.from('services').delete().eq('id', serviceId);
   }
 
-  /// Upload service image
   Future<void> uploadServiceImage({
     required int serviceId,
     required String imagePath,
   }) async {
-    await _apiClient.uploadFile(
-      '${ApiConstants.companyServices}/UploadImage',
-      filePath: imagePath,
-      fieldName: 'file',
-      fields: {'companyServiceId': serviceId.toString()},
-    );
+    final file = File(imagePath);
+    final fileName = '${serviceId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final storagePath = '$serviceId/$fileName';
+
+    await _supabase.storage
+        .from('service-images')
+        .upload(storagePath, file, fileOptions: const FileOptions(upsert: true));
+
+    final publicUrl = _supabase.storage
+        .from('service-images')
+        .getPublicUrl(storagePath);
+
+    await _supabase
+        .from('services')
+        .update({'image': publicUrl})
+        .eq('id', serviceId);
   }
 
-  /// Get reviews for a service
   Future<List<ReviewModel>> getServiceReviews(int serviceId) async {
-    final response = await _apiClient.get(
-      ApiConstants.getServiceReviews,
-      queryParams: {'CompanyServiceId': serviceId},
-      includeAuth: false,
-    );
+    final response = await _supabase
+        .from('reviews')
+        .select('*, profiles(first_name, last_name, profile_image)')
+        .eq('service_id', serviceId)
+        .order('created_at', ascending: false);
 
-    final List<dynamic> data = response['data'] ?? [];
-    return data.map((json) => ReviewModel.fromJson(json)).toList();
+    return (response as List)
+        .map((json) => ReviewModel.fromJson(json))
+        .toList();
   }
 
-  /// Create a review for a service
   Future<void> createReview({
     required int serviceId,
     required int bookingId,
     required double rating,
     String? comment,
   }) async {
-    await _apiClient.post(
-      ApiConstants.createReview,
-      body: {
-        'companyServiceId': serviceId,
-        'bookingServiceId': bookingId,
-        'serviceReviewRating': rating,
-        'serviceReviewComment': comment,
-      },
-    );
+    final userId = _supabase.auth.currentUser!.id;
+    await _supabase.from('reviews').insert({
+      'service_id': serviceId,
+      'booking_id': bookingId,
+      'user_id': userId,
+      'rating': rating,
+      'comment': comment,
+    });
+  }
+
+  Future<List<ServiceCategory>> getCategories() async {
+    final response = await _supabase
+        .from('categories')
+        .select('*')
+        .order('id');
+
+    return (response as List)
+        .map((json) => ServiceCategory.fromJson(json))
+        .toList();
   }
 }

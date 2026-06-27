@@ -1,46 +1,22 @@
-import '../../core/constants/api_constants.dart';
-import '../../core/network/api_client.dart';
-import '../../core/services/storage_service.dart';
+import 'dart:io';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user_model.dart';
 
-/// Repository handling all authentication-related API calls.
 class AuthRepository {
-  final ApiClient _apiClient;
-  final StorageService _storageService;
+  SupabaseClient get _supabase => Supabase.instance.client;
 
-  AuthRepository({
-    required ApiClient apiClient,
-    required StorageService storageService,
-  })  : _apiClient = apiClient,
-        _storageService = storageService;
-
-  /// Sign in user with email and password
   Future<UserModel> signIn({
     required String email,
     required String password,
   }) async {
-    final response = await _apiClient.post(
-      ApiConstants.signIn,
-      body: {
-        'userEmail': email,
-        'password': password,
-      },
-      includeAuth: false,
+    final response = await _supabase.auth.signInWithPassword(
+      email: email,
+      password: password,
     );
-
-    final data = response['data'];
-    
-    // Extract and save token
-    final token = data['jwtAccessToken']?['access_Token'];
-    if (token != null) {
-      await _storageService.saveAuthToken(token);
-    }
-
-    // Fetch and return user info
+    if (response.user == null) throw Exception('Sign in failed');
     return await getUserInfo();
   }
 
-  /// Sign up new user
   Future<void> signUp({
     required String email,
     required String password,
@@ -49,109 +25,96 @@ class AuthRepository {
     required String phoneNumber,
     required String userType,
   }) async {
-    await _apiClient.post(
-      ApiConstants.signUp,
-      body: {
-        'email': email,
-        'password': password,
-        'firstName': firstName,
-        'lastName': lastName,
-        'phoneNumber': phoneNumber,
-        'userType': userType,
+    final response = await _supabase.auth.signUp(
+      email: email,
+      password: password,
+      data: {
+        'first_name': firstName,
+        'last_name': lastName,
+        'phone_number': phoneNumber,
+        'user_type': userType,
       },
-      includeAuth: false,
     );
+    if (response.user == null) throw Exception('Sign up failed');
   }
 
-  /// Get current user information
   Future<UserModel> getUserInfo() async {
-    final response = await _apiClient.get(ApiConstants.getUserInfo);
-    final userData = response['data'];
-    final user = UserModel.fromJson(userData);
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw Exception('Not authenticated');
 
-    // Save user data to storage
-    await _storageService.saveUserData(
-      token: _storageService.getAuthToken() ?? '',
-      userType: user.userType,
-      userId: user.userId,
-      companyId: user.companyId,
-    );
+    final data = await _supabase
+        .from('profiles')
+        .select('*, company_profiles(id)')
+        .eq('id', user.id)
+        .single();
 
-    return user;
-  }
+    final companies = (data['company_profiles'] as List?) ?? [];
+    final hasCompany = companies.isNotEmpty;
+    final companyId = hasCompany ? companies.first['id'] as int : null;
 
-  /// Resend OTP verification code
-  Future<void> resendOtp(String email) async {
-    await _apiClient.put(
-      ApiConstants.resendOtp,
-      queryParams: {'Email': email},
-      includeAuth: false,
-    );
-  }
-
-  /// Verify OTP code
-  Future<void> verifyOtp({
-    required String email,
-    required String otp,
-  }) async {
-    await _apiClient.put(
-      ApiConstants.verifyOtp,
-      queryParams: {
-        'Email': email,
-        'OTP': otp,
-      },
-      includeAuth: false,
+    return UserModel(
+      userId: user.id,
+      email: user.email ?? '',
+      firstName: data['first_name'],
+      lastName: data['last_name'],
+      phoneNumber: data['phone_number'],
+      userType: data['user_type'] ?? 'Customer',
+      isEmailVerified: user.emailConfirmedAt != null,
+      isCompanyProfileExist: hasCompany,
+      companyId: companyId,
+      profileImage: data['profile_image'],
     );
   }
 
-  /// Request password reset (forgot password)
   Future<void> forgotPassword(String email) async {
-    await _apiClient.post(
-      ApiConstants.forgotPassword,
-      queryParams: {'Email': email},
-      includeAuth: false,
-    );
+    await _supabase.auth.resetPasswordForEmail(email);
   }
 
-  /// Reset password with OTP
-  Future<void> resetPassword({
-    required String email,
-    required String otp,
-    required String newPassword,
-  }) async {
-    await _apiClient.put(
-      ApiConstants.resetPassword,
-      body: {
-        'email': email,
-        'otp': otp,
-        'newPassword': newPassword,
-      },
-      includeAuth: false,
-    );
-  }
-
-  /// Sign out user (clear local storage)
   Future<void> signOut() async {
-    await _storageService.clearAll();
+    await _supabase.auth.signOut();
   }
 
-  /// Check if user is authenticated
   bool isAuthenticated() {
-    return _storageService.isAuthenticated();
+    return _supabase.auth.currentSession != null;
   }
 
-  /// Get stored user type
   String? getUserType() {
-    return _storageService.getUserType();
+    return _supabase.auth.currentUser?.userMetadata?['user_type'] as String?;
   }
 
-  /// Check if user is customer
-  bool isCustomer() {
-    return _storageService.isCustomer();
+  bool isCustomer() => getUserType() == 'Customer';
+
+  bool isSeller() => getUserType() == 'Seller';
+
+  Future<void> updateProfile({
+    String? firstName,
+    String? lastName,
+    String? phoneNumber,
+  }) async {
+    final userId = _supabase.auth.currentUser!.id;
+    await _supabase.from('profiles').update({
+      if (firstName != null) 'first_name': firstName,
+      if (lastName != null) 'last_name': lastName,
+      if (phoneNumber != null) 'phone_number': phoneNumber,
+    }).eq('id', userId);
   }
 
-  /// Check if user is seller
-  bool isSeller() {
-    return _storageService.isSeller();
+  Future<void> uploadAvatar({required String imagePath}) async {
+    final userId = _supabase.auth.currentUser!.id;
+    final file = File(imagePath);
+    final fileName = '${userId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final storagePath = '$userId/$fileName';
+
+    await _supabase.storage
+        .from('avatars')
+        .upload(storagePath, file, fileOptions: const FileOptions(upsert: true));
+
+    final publicUrl =
+        _supabase.storage.from('avatars').getPublicUrl(storagePath);
+
+    await _supabase
+        .from('profiles')
+        .update({'profile_image': publicUrl})
+        .eq('id', userId);
   }
 }

@@ -1,8 +1,7 @@
-/// Booking model representing a service booking.
 class BookingModel {
   final int bookingId;
   final int serviceId;
-  final int customerId;
+  final String customerId; // UUID
   final int companyId;
   final String status;
   final DateTime bookingDate;
@@ -15,7 +14,7 @@ class BookingModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  // Related data (when fetched with booking)
+  // Related data
   final String? serviceName;
   final String? serviceImage;
   final String? companyName;
@@ -48,90 +47,104 @@ class BookingModel {
     this.customerPhone,
   });
 
-  /// Get full service image URL
   String get serviceImageUrl {
     if (serviceImage == null || serviceImage!.isEmpty) return '';
-    if (serviceImage!.startsWith('http')) return serviceImage!;
-    return 'https://fixease.pk$serviceImage';
+    return serviceImage!;
   }
 
-  /// Get full company logo URL
   String get companyLogoUrl {
     if (companyLogo == null || companyLogo!.isEmpty) return '';
-    if (companyLogo!.startsWith('http')) return companyLogo!;
-    return 'https://fixease.pk$companyLogo';
+    return companyLogo!;
   }
 
-  /// Check if booking is pending
   bool get isPending => status.toLowerCase() == 'pending';
-
-  /// Check if booking is accepted
   bool get isAccepted => status.toLowerCase() == 'accepted';
-
-  /// Check if booking is in progress
   bool get isInProgress => status.toLowerCase() == 'inprogress';
+  bool get isCompleted =>
+      status.toLowerCase() == 'completed' || status.toLowerCase() == 'finished';
+  bool get isCancelled =>
+      status.toLowerCase() == 'cancelled' || status.toLowerCase() == 'rejected';
 
-  /// Check if booking is completed
-  bool get isCompleted => 
-      status.toLowerCase() == 'completed' || 
-      status.toLowerCase() == 'finished';
-
-  /// Check if booking is cancelled
-  bool get isCancelled => 
-      status.toLowerCase() == 'cancelled' || 
-      status.toLowerCase() == 'rejected';
-
-  /// Create BookingModel from API JSON response
   factory BookingModel.fromJson(Map<String, dynamic> json) {
+    // Handle nested services object from Supabase join
+    final serviceData = json['services'];
+    final serviceName = serviceData is Map
+        ? serviceData['name'] as String?
+        : json['serviceName'];
+    final serviceImage = serviceData is Map
+        ? serviceData['image'] as String?
+        : json['serviceImage'];
+
+    // Handle nested company_profiles object
+    final companyData = json['company_profiles'];
+    final companyName = companyData is Map
+        ? companyData['company_name'] as String?
+        : json['companyName'];
+    final companyLogo = companyData is Map
+        ? companyData['logo'] as String?
+        : json['companyLogo'];
+
+    // Handle nested profiles object (customer info)
+    final customerData = json['profiles'];
+    final String? customerFirstName = customerData is Map
+        ? customerData['first_name'] as String?
+        : null;
+    final String? customerLastName = customerData is Map
+        ? customerData['last_name'] as String?
+        : null;
+    final customerName = (customerFirstName != null || customerLastName != null)
+        ? '${customerFirstName ?? ''} ${customerLastName ?? ''}'.trim()
+        : json['customerName'];
+    final customerPhone = customerData is Map
+        ? customerData['phone_number'] as String?
+        : json['customerPhone'];
+
     return BookingModel(
-      bookingId: json['bookingId'] ?? json['bookingServiceId'] ?? 0,
-      serviceId: json['serviceId'] ?? json['companyServiceId'] ?? 0,
-      customerId: json['customerId'] ?? json['userId'] ?? 0,
-      companyId: json['companyId'] ?? 0,
-      status: json['status'] ?? json['bookingStatus'] ?? 'Pending',
-      bookingDate: json['bookingDate'] != null 
-          ? DateTime.parse(json['bookingDate']) 
+      bookingId: json['id'] ?? json['bookingId'] ?? 0,
+      serviceId: json['service_id'] ?? json['serviceId'] ?? 0,
+      customerId: (json['customer_id'] ?? json['customerId'] ?? '').toString(),
+      companyId: json['company_id'] ?? json['companyId'] ?? 0,
+      status: json['status'] ?? 'Pending',
+      bookingDate: json['booking_date'] != null
+          ? DateTime.parse(json['booking_date'])
           : DateTime.now(),
-      bookingTime: json['bookingTime'],
-      address: json['address'] ?? json['bookingAddress'],
+      bookingTime: json['booking_time'] ?? json['bookingTime'],
+      address: json['address'],
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
-      description: json['description'] ?? json['bookingDescription'],
-      totalPrice: (json['totalPrice'] ?? json['price'] as num?)?.toDouble(),
-      createdAt: json['createdAt'] != null 
-          ? DateTime.tryParse(json['createdAt']) 
+      description: json['description'],
+      totalPrice: (json['total_price'] ?? json['totalPrice'] as num?)?.toDouble(),
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'])
           : null,
-      updatedAt: json['updatedAt'] != null 
-          ? DateTime.tryParse(json['updatedAt']) 
+      updatedAt: json['updated_at'] != null
+          ? DateTime.tryParse(json['updated_at'])
           : null,
-      serviceName: json['serviceName'] ?? json['companyServiceName'],
-      serviceImage: json['serviceImage'] ?? json['companyServiceImage'],
-      companyName: json['companyName'],
-      companyLogo: json['companyLogo'],
-      customerName: json['customerName'] ?? json['userName'],
-      customerEmail: json['customerEmail'] ?? json['userEmail'],
-      customerPhone: json['customerPhone'] ?? json['userPhone'],
+      serviceName: serviceName,
+      serviceImage: serviceImage,
+      companyName: companyName,
+      companyLogo: companyLogo,
+      customerName: customerName,
+      customerPhone: customerPhone,
     );
   }
 
-  /// Convert BookingModel to JSON for creating/updating booking
   Map<String, dynamic> toJson() {
     return {
-      'companyServiceId': serviceId,
-      'bookingDate': bookingDate.toIso8601String().split('T')[0],
-      'bookingTime': bookingTime,
-      'bookingAddress': address,
+      'service_id': serviceId,
+      'booking_date': bookingDate.toIso8601String().split('T')[0],
+      'booking_time': bookingTime,
+      'address': address,
       'latitude': latitude,
       'longitude': longitude,
-      'bookingDescription': description,
+      'description': description,
     };
   }
 
-  /// Create a copy with modified fields
   BookingModel copyWith({
     int? bookingId,
     int? serviceId,
-    int? customerId,
+    String? customerId,
     int? companyId,
     String? status,
     DateTime? bookingDate,
@@ -177,7 +190,6 @@ class BookingModel {
   }
 }
 
-/// Booking stats for seller dashboard
 class BookingStats {
   final int pending;
   final int accepted;
@@ -196,7 +208,7 @@ class BookingStats {
       pending: json['pending'] ?? 0,
       accepted: json['accepted'] ?? 0,
       inProgress: json['inProgress'] ?? 0,
-      completed: json['finished'] ?? json['completed'] ?? 0,
+      completed: json['completed'] ?? 0,
     );
   }
 }

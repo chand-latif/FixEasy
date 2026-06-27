@@ -385,7 +385,7 @@ class _ServiceProviderHomeState extends State<ServiceProviderHome> {
                                   MaterialPageRoute(
                                     builder:
                                         (context) => CreateServiceScreen(
-                                          companyID: companyId,
+                                          companyID: companyId ?? 0,
                                         ),
                                   ),
                                 );
@@ -422,7 +422,7 @@ class _ServiceProviderHomeState extends State<ServiceProviderHome> {
                                   MaterialPageRoute(
                                     builder:
                                         (context) => MyServicesScreen(
-                                          companyId: companyId,
+                                          companyId: companyId ?? 0,
                                         ),
                                   ),
                                 );

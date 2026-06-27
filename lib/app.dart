@@ -27,7 +27,7 @@ class FixEasyApp extends StatelessWidget {
     return MaterialApp(
       title: 'FixEasy',
       debugShowCheckedModeBanner: false,
-      
+
       // Apply the app theme
       theme: AppTheme.lightTheme,
 
@@ -39,15 +39,15 @@ class FixEasyApp extends StatelessWidget {
         '/PasswordConfirmation': (context) => const PasswordConfirmation(),
         '/customerHome': (context) => const CustomerHome(),
         '/sellerHome': (context) => const ServiceProviderHome(),
-        '/customerProfile': (context) => const ProfilePage(),
-        '/sellerProfile': (context) => const ProfilePageSeller(),
+        '/customerProfile': (context) => ProfilePage(),
+        '/sellerProfile': (context) => ProfilePageSeller(),
         '/myBookings': (context) => const MyBookingsScreen(),
         '/sellerBookingRequests': (context) => const BookingRequestsScreen(),
         '/allServices': (context) => const AllServicesScreen(),
       },
 
       // Start with splash screen
-      home: const StartupScreen(),
+      home: StartupScreen(),
     );
   }
 }

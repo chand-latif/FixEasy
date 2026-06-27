@@ -37,14 +37,14 @@ class CustomerHomeViewModel extends BaseViewModel {
   /// Whether services are loading
   bool get isLoadingServices => _isLoadingServices;
 
-  /// Service categories with icons
+  /// Service categories with icons (IDs match Supabase seeded categories)
   List<Map<String, dynamic>> get serviceCategories => const [
-        {'name': 'Carpenter', 'id': 14, 'icon': 'carpenter', 'color': 0xFFFF9800},
-        {'name': 'Painter', 'id': 10, 'icon': 'format_paint', 'color': 0xFF2196F3},
-        {'name': 'Plumber', 'id': 9, 'icon': 'plumbing', 'color': 0xFF03A9F4},
-        {'name': 'Electrician', 'id': 11, 'icon': 'electrical_services', 'color': 0xFFFFC107},
-        {'name': 'AC Repair', 'id': 12, 'icon': 'ac_unit', 'color': 0xFF009688},
-        {'name': 'Cleaner', 'id': 13, 'icon': 'cleaning_services', 'color': 0xFF9C27B0},
+        {'name': 'Plumbing', 'id': 1, 'icon': 'plumbing', 'color': 0xFF03A9F4},
+        {'name': 'Electrical', 'id': 2, 'icon': 'electrical_services', 'color': 0xFFFFC107},
+        {'name': 'Cleaning', 'id': 3, 'icon': 'cleaning_services', 'color': 0xFF9C27B0},
+        {'name': 'Painting', 'id': 4, 'icon': 'format_paint', 'color': 0xFF2196F3},
+        {'name': 'Carpentry', 'id': 5, 'icon': 'carpenter', 'color': 0xFFFF9800},
+        {'name': 'AC & Appliances', 'id': 6, 'icon': 'ac_unit', 'color': 0xFF009688},
       ];
 
   /// Load featured companies

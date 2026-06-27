@@ -1,12 +1,10 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:fix_easy/customer_screens/customer_home.dart';
-// import 'seller_screens/seller_home.dart';
+import 'package:fix_easy/seller_screens/create_company_profile.dart';
 import 'theme.dart';
 import 'dart:async';
-import 'package:fix_easy/seller_screens/create_company_profile.dart';
+import 'data/repositories/auth_repository.dart';
 
 class StartupScreen extends StatefulWidget {
   @override
@@ -17,6 +15,7 @@ class _StartupScreenState extends State<StartupScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
+
   @override
   void initState() {
     super.initState();
@@ -24,9 +23,7 @@ class _StartupScreenState extends State<StartupScreen>
       vsync: this,
       duration: Duration(seconds: 2),
     );
-
     _animation = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
-
     _controller.forward();
 
     Future.delayed(Duration.zero, () async {
@@ -36,67 +33,44 @@ class _StartupScreenState extends State<StartupScreen>
 
   @override
   void dispose() {
-    _controller.dispose(); // ✅ This line fixes the Ticker issue
+    _controller.dispose();
     super.dispose();
   }
 
   Future<void> _checkAuthAndNavigate() async {
-    // Add delay to show animation
     await Future.delayed(Duration(seconds: 2));
-
     if (!mounted) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
+    final session = Supabase.instance.client.auth.currentSession;
 
-    if (token == null) {
+    if (session == null) {
       Navigator.pushReplacementNamed(context, '/home');
       return;
     }
 
     try {
-      final response = await http.get(
-        Uri.parse("https://fixease.pk/api/User/GetUserInformation"),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-      );
-
+      final user = await AuthRepository().getUserInfo();
       if (!mounted) return;
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final userType = data['data']['userType'];
-        final companyCreated = data['data']['isCompanyProfileExist'];
-
-        if (userType == 'Customer') {
+      if (user.isCustomer) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => CustomerHome()),
+        );
+      } else if (user.isSeller) {
+        if (!user.isCompanyProfileExist) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => CustomerHome()),
+            MaterialPageRoute(
+              builder: (_) => const CreateCompanyProfileScreen(),
+            ),
           );
-        } else if (userType == 'Seller') {
-          if (companyCreated == false) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder:
-                    (context) => CreateCompanyProfileScreen(
-                      userID: data['data']['userId'],
-                    ),
-              ),
-            );
-          } else {
-            Navigator.pushReplacementNamed(context, '/sellerHome');
-          }
+        } else {
+          Navigator.pushReplacementNamed(context, '/sellerHome');
         }
-      } else {
-        Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e) {
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
+      if (mounted) Navigator.pushReplacementNamed(context, '/home');
     }
   }
 
@@ -110,13 +84,8 @@ class _StartupScreenState extends State<StartupScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // App Logo
-              Image.asset(
-                'assets/FixEasy.png', // Ensure you have a logo in assets folder
-                width: 220,
-              ),
+              Image.asset('assets/FixEasy.png', width: 220),
               SizedBox(height: 40),
-              // App Tagline
               Text(
                 'Your Home Service Partner',
                 style: TextStyle(

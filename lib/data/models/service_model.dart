@@ -1,4 +1,3 @@
-/// Service model representing a company's service offering.
 class ServiceModel {
   final int serviceId;
   final int companyId;
@@ -32,62 +31,66 @@ class ServiceModel {
     this.companyLogo,
   });
 
-  /// Get full image URL
   String get imageUrl {
     if (serviceImage == null || serviceImage!.isEmpty) return '';
-    if (serviceImage!.startsWith('http')) return serviceImage!;
-    return 'https://fixease.pk$serviceImage';
+    return serviceImage!;
   }
 
-  /// Get full company logo URL
   String get companyLogoUrl {
     if (companyLogo == null || companyLogo!.isEmpty) return '';
-    if (companyLogo!.startsWith('http')) return companyLogo!;
-    return 'https://fixease.pk$companyLogo';
+    return companyLogo!;
   }
 
-  /// Formatted price string
   String get formattedPrice => 'Rs. ${price.toStringAsFixed(0)}';
 
-  /// Create ServiceModel from API JSON response
   factory ServiceModel.fromJson(Map<String, dynamic> json) {
+    // Handle nested categories object from Supabase join
+    final categoryData = json['categories'];
+    final categoryName = categoryData is Map
+        ? categoryData['name'] as String?
+        : json['categoryName'] ?? json['serviceCategoryName'];
+
+    // Handle nested company_profiles object from Supabase join
+    final companyData = json['company_profiles'];
+    final companyName = companyData is Map
+        ? companyData['company_name'] as String?
+        : json['companyName'];
+    final companyLogo = companyData is Map
+        ? companyData['logo'] as String?
+        : json['companyLogo'];
+
     return ServiceModel(
-      serviceId: json['serviceId'] ?? json['companyServiceId'] ?? 0,
-      companyId: json['companyId'] ?? 0,
-      serviceName: json['serviceName'] ?? json['companyServiceName'] ?? '',
-      serviceDescription: json['serviceDescription'] ?? json['companyServiceDescription'],
-      price: (json['price'] ?? json['companyServicePrice'] ?? 0).toDouble(),
-      serviceImage: json['serviceImage'] ?? json['companyServiceImage'],
-      categoryId: json['categoryId'] ?? json['serviceCategoryId'] ?? 0,
-      categoryName: json['categoryName'] ?? json['serviceCategoryName'],
-      isPublished: json['isPublished'] ?? json['companyServiceStatus'] == 'Published',
-      rating: json['serviceRating'] != null 
-          ? ServiceRating.fromJson(json['serviceRating']) 
+      serviceId: json['id'] ?? json['serviceId'] ?? 0,
+      companyId: json['company_id'] ?? json['companyId'] ?? 0,
+      serviceName: json['name'] ?? json['serviceName'] ?? '',
+      serviceDescription: json['description'] ?? json['serviceDescription'],
+      price: (json['price'] ?? 0).toDouble(),
+      serviceImage: json['image'] ?? json['serviceImage'],
+      categoryId: json['category_id'] ?? json['categoryId'] ?? 0,
+      categoryName: categoryName,
+      isPublished: json['is_published'] ?? json['isPublished'] ?? false,
+      rating: null, // Ratings computed separately from reviews
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'])
           : null,
-      createdAt: json['createdAt'] != null 
-          ? DateTime.tryParse(json['createdAt']) 
-          : null,
-      companyName: json['companyName'],
-      companyLogo: json['companyLogo'],
+      companyName: companyName,
+      companyLogo: companyLogo,
     );
   }
 
-  /// Convert ServiceModel to JSON
   Map<String, dynamic> toJson() {
     return {
-      'serviceId': serviceId,
-      'companyId': companyId,
-      'serviceName': serviceName,
-      'serviceDescription': serviceDescription,
+      'id': serviceId,
+      'company_id': companyId,
+      'name': serviceName,
+      'description': serviceDescription,
       'price': price,
-      'serviceImage': serviceImage,
-      'categoryId': categoryId,
-      'categoryName': categoryName,
-      'isPublished': isPublished,
+      'image': serviceImage,
+      'category_id': categoryId,
+      'is_published': isPublished,
     };
   }
 
-  /// Create a copy with modified fields
   ServiceModel copyWith({
     int? serviceId,
     int? companyId,
@@ -121,34 +124,31 @@ class ServiceModel {
   }
 }
 
-/// Service rating information
 class ServiceRating {
   final double averageRating;
   final int totalRatings;
 
-  ServiceRating({
-    required this.averageRating,
-    required this.totalRatings,
-  });
+  ServiceRating({required this.averageRating, required this.totalRatings});
 
   String get formattedRating => averageRating.toStringAsFixed(1);
 
   factory ServiceRating.fromJson(Map<String, dynamic> json) {
     return ServiceRating(
-      averageRating: (json['averageRating'] as num?)?.toDouble() ?? 0.0,
-      totalRatings: json['totalRatings'] ?? 0,
+      averageRating: (json['average_rating'] ?? json['averageRating'] as num?)
+              ?.toDouble() ??
+          0.0,
+      totalRatings: json['total_ratings'] ?? json['totalRatings'] ?? 0,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'averageRating': averageRating,
-      'totalRatings': totalRatings,
+      'average_rating': averageRating,
+      'total_ratings': totalRatings,
     };
   }
 }
 
-/// Service category
 class ServiceCategory {
   final int categoryId;
   final String categoryName;
@@ -162,9 +162,9 @@ class ServiceCategory {
 
   factory ServiceCategory.fromJson(Map<String, dynamic> json) {
     return ServiceCategory(
-      categoryId: json['categoryId'] ?? json['serviceCategoryId'] ?? 0,
-      categoryName: json['categoryName'] ?? json['serviceCategoryName'] ?? '',
-      categoryIcon: json['categoryIcon'],
+      categoryId: json['id'] ?? json['categoryId'] ?? 0,
+      categoryName: json['name'] ?? json['categoryName'] ?? '',
+      categoryIcon: json['icon'] ?? json['categoryIcon'],
     );
   }
 }

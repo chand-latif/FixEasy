@@ -1,32 +1,37 @@
-import '../../core/constants/api_constants.dart';
-import '../../core/network/api_client.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/booking_model.dart';
 
-/// Repository handling all booking-related API calls.
 class BookingRepository {
-  final ApiClient _apiClient;
+  SupabaseClient get _supabase => Supabase.instance.client;
 
-  BookingRepository({required ApiClient apiClient}) : _apiClient = apiClient;
+  static const _bookingSelect = '''
+    *,
+    services(id, name, image),
+    profiles!customer_id(first_name, last_name, phone_number, profile_image),
+    company_profiles(company_name, logo)
+  ''';
 
-  /// Get all bookings for the current user
   Future<List<BookingModel>> getAllBookings() async {
-    final response = await _apiClient.get(ApiConstants.getAllBookings);
+    final response = await _supabase
+        .from('bookings')
+        .select(_bookingSelect)
+        .order('created_at', ascending: false);
 
-    final List<dynamic> data = response['data'] ?? [];
-    return data.map((json) => BookingModel.fromJson(json)).toList();
+    return (response as List)
+        .map((json) => BookingModel.fromJson(json))
+        .toList();
   }
 
-  /// Get booking details by ID
   Future<BookingModel> getBookingDetails(int bookingId) async {
-    final response = await _apiClient.get(
-      ApiConstants.getBookingDetails,
-      queryParams: {'BookingId': bookingId},
-    );
+    final response = await _supabase
+        .from('bookings')
+        .select(_bookingSelect)
+        .eq('id', bookingId)
+        .single();
 
-    return BookingModel.fromJson(response['data']);
+    return BookingModel.fromJson(response);
   }
 
-  /// Create a new booking
   Future<BookingModel> createBooking({
     required int serviceId,
     required DateTime bookingDate,
@@ -36,43 +41,60 @@ class BookingRepository {
     double? longitude,
     String? description,
   }) async {
-    final response = await _apiClient.post(
-      ApiConstants.createBooking,
-      body: {
-        'companyServiceId': serviceId,
-        'bookingDate': bookingDate.toIso8601String().split('T')[0],
-        'bookingTime': bookingTime,
-        'bookingAddress': address,
-        'latitude': latitude,
-        'longitude': longitude,
-        'bookingDescription': description,
-      },
-    );
+    final customerId = _supabase.auth.currentUser!.id;
 
-    return BookingModel.fromJson(response['data']);
+    // Get company_id from the service
+    final serviceData = await _supabase
+        .from('services')
+        .select('company_id, price')
+        .eq('id', serviceId)
+        .single();
+
+    final response = await _supabase
+        .from('bookings')
+        .insert({
+          'service_id': serviceId,
+          'customer_id': customerId,
+          'company_id': serviceData['company_id'],
+          'booking_date': bookingDate.toIso8601String().split('T')[0],
+          'booking_time': bookingTime,
+          'address': address,
+          'latitude': latitude,
+          'longitude': longitude,
+          'description': description,
+          'total_price': serviceData['price'],
+        })
+        .select(_bookingSelect)
+        .single();
+
+    return BookingModel.fromJson(response);
   }
 
-  /// Update booking status
   Future<void> updateBookingStatus({
     required int bookingId,
     required String status,
   }) async {
-    await _apiClient.put(
-      ApiConstants.setBookingStatus,
-      queryParams: {
-        'BookingId': bookingId,
-        'Status': status,
-      },
+    await _supabase
+        .from('bookings')
+        .update({'status': status, 'updated_at': DateTime.now().toIso8601String()})
+        .eq('id', bookingId);
+  }
+
+  Future<BookingStats> getBookingStats() async {
+    final response = await _supabase
+        .from('bookings')
+        .select('status');
+
+    final statuses = (response as List).map((b) => b['status'] as String).toList();
+
+    return BookingStats(
+      pending: statuses.where((s) => s == 'Pending').length,
+      accepted: statuses.where((s) => s == 'Accepted').length,
+      inProgress: statuses.where((s) => s == 'InProgress').length,
+      completed: statuses.where((s) => s == 'Completed').length,
     );
   }
 
-  /// Get booking stats for seller
-  Future<BookingStats> getBookingStats() async {
-    final response = await _apiClient.get(ApiConstants.providerStats);
-    return BookingStats.fromJson(response['data']);
-  }
-
-  /// Update booking details
   Future<BookingModel> updateBooking({
     required int bookingId,
     DateTime? bookingDate,
@@ -82,66 +104,65 @@ class BookingRepository {
     double? longitude,
     String? description,
   }) async {
-    final response = await _apiClient.put(
-      ApiConstants.updateBooking,
-      body: {
-        'bookingServiceId': bookingId,
-        if (bookingDate != null) 'bookingDate': bookingDate.toIso8601String().split('T')[0],
-        if (bookingTime != null) 'bookingTime': bookingTime,
-        if (address != null) 'bookingAddress': address,
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-        if (description != null) 'bookingDescription': description,
-      },
-    );
+    final response = await _supabase
+        .from('bookings')
+        .update({
+          if (bookingDate != null)
+            'booking_date': bookingDate.toIso8601String().split('T')[0],
+          if (bookingTime != null) 'booking_time': bookingTime,
+          if (address != null) 'address': address,
+          if (latitude != null) 'latitude': latitude,
+          if (longitude != null) 'longitude': longitude,
+          if (description != null) 'description': description,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', bookingId)
+        .select(_bookingSelect)
+        .single();
 
-    return BookingModel.fromJson(response['data']);
+    return BookingModel.fromJson(response);
   }
 
-  /// Delete/cancel a booking
   Future<void> deleteBooking(int bookingId) async {
-    await _apiClient.delete(
-      ApiConstants.deleteBooking,
-      queryParams: {'BookingId': bookingId},
-    );
+    await _supabase.from('bookings').delete().eq('id', bookingId);
   }
 
-  /// Get recent bookings (for dashboard)
   Future<List<BookingModel>> getRecentBookings({int limit = 3}) async {
-    final bookings = await getAllBookings();
-    return bookings.take(limit).toList();
-  }
+    final response = await _supabase
+        .from('bookings')
+        .select(_bookingSelect)
+        .order('created_at', ascending: false)
+        .limit(limit);
 
-  /// Get bookings by status
-  Future<List<BookingModel>> getBookingsByStatus(String status) async {
-    final allBookings = await getAllBookings();
-    return allBookings
-        .where((b) => b.status.toLowerCase() == status.toLowerCase())
+    return (response as List)
+        .map((json) => BookingModel.fromJson(json))
         .toList();
   }
 
-  /// Accept a booking (for seller)
-  Future<void> acceptBooking(int bookingId) async {
-    await updateBookingStatus(bookingId: bookingId, status: 'Accepted');
+  Future<List<BookingModel>> getBookingsByStatus(String status) async {
+    final response = await _supabase
+        .from('bookings')
+        .select(_bookingSelect)
+        .eq('status', status)
+        .order('created_at', ascending: false);
+
+    return (response as List)
+        .map((json) => BookingModel.fromJson(json))
+        .toList();
   }
 
-  /// Reject a booking (for seller)
-  Future<void> rejectBooking(int bookingId) async {
-    await updateBookingStatus(bookingId: bookingId, status: 'Rejected');
-  }
+  Future<void> acceptBooking(int bookingId) async =>
+      updateBookingStatus(bookingId: bookingId, status: 'Accepted');
 
-  /// Start work on a booking (for seller)
-  Future<void> startBooking(int bookingId) async {
-    await updateBookingStatus(bookingId: bookingId, status: 'InProgress');
-  }
+  Future<void> rejectBooking(int bookingId) async =>
+      updateBookingStatus(bookingId: bookingId, status: 'Rejected');
 
-  /// Complete a booking (for seller)
-  Future<void> completeBooking(int bookingId) async {
-    await updateBookingStatus(bookingId: bookingId, status: 'Completed');
-  }
+  Future<void> startBooking(int bookingId) async =>
+      updateBookingStatus(bookingId: bookingId, status: 'InProgress');
 
-  /// Cancel a booking (for customer)
-  Future<void> cancelBooking(int bookingId) async {
-    await updateBookingStatus(bookingId: bookingId, status: 'Cancelled');
-  }
+  Future<void> completeBooking(int bookingId) async =>
+      updateBookingStatus(bookingId: bookingId, status: 'Completed');
+
+  Future<void> cancelBooking(int bookingId) async =>
+      updateBookingStatus(bookingId: bookingId, status: 'Cancelled');
 }

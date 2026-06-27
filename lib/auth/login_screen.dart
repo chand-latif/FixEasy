@@ -1,16 +1,12 @@
-import 'package:fix_easy/customer_screens/customer_home.dart' as customer_home;
-import 'package:fix_easy/theme.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import '../verfication_OTP.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import 'package:fix_easy/theme.dart';
+import 'package:fix_easy/customer_screens/customer_home.dart' as customer_home;
 import 'package:fix_easy/seller_screens/create_company_profile.dart';
-// import 'package:fix_easy/seller_screens/seller_home.dart' as seller_home;
+import '../presentation/viewmodels/auth_viewmodel.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
-
   final String title;
 
   @override
@@ -22,168 +18,52 @@ class _MyHomePageState extends State<MyHomePage> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   bool _isObscure = true;
-  bool _isLoading = false;
 
-  //fetch jwt token
-  Future<void> fetchUserInfoAndNavigate(BuildContext context) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
 
-    if (token == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Token not found. Please log in again.')),
-      );
-      return;
-    }
+  Future<void> _signIn() async {
+    if (!_formKey.currentState!.validate()) return;
 
-    final response = await http.get(
-      Uri.parse("https://fixease.pk/api/User/GetUserInformation"),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
+    final authVM = context.read<AuthViewModel>();
+    final success = await authVM.signIn(
+      email: emailController.text.trim(),
+      password: passwordController.text,
     );
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final userType = data['data']['userType'];
-      final companyCreated = data['data']['isCompanyProfileExist'];
 
-      if (userType == 'Customer') {
+    if (!mounted) return;
+
+    if (success) {
+      final user = authVM.currentUser!;
+      if (user.isCustomer) {
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (context) => customer_home.CustomerHome()),
-          (route) => false, // This will remove all previous routes
+          MaterialPageRoute(builder: (_) => customer_home.CustomerHome()),
+          (route) => false,
         );
-      } else if (userType == 'Seller') {
-        if (companyCreated == false) {
+      } else if (user.isSeller) {
+        if (!user.isCompanyProfileExist) {
           Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(
-              builder:
-                  (context) => CreateCompanyProfileScreen(
-                    userID: data['data']['userId'],
-                  ),
-            ),
-            (route) => false, // This will remove all previous routes
+            MaterialPageRoute(builder: (_) => const CreateCompanyProfileScreen()),
+            (route) => false,
           );
         } else {
           Navigator.pushNamedAndRemoveUntil(
             context,
             '/sellerHome',
-            (route) => false, // This will remove all previous routes
+            (route) => false,
           );
         }
       }
     } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to fetch user info')));
-    }
-  }
-
-  Future<void> sendOTP(String email) async {
-    final url = Uri.parse(
-      "https://fixease.pk/api/User/ResendVerificationOTP?Email=$email",
-    );
-
-    final body = {"email": email};
-
-    try {
-      final response = await http.put(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(body),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(authVM.errorMessage ?? 'Sign in failed')),
       );
-
-      if (response.statusCode != 200) {
-        // Handle error if OTP sending fails
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Failed to send OTP")));
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error sending OTP")));
-    }
-  }
-
-  Future<void> signInUser() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      var url = Uri.parse('https://fixease.pk/api/User/SignIn');
-
-      var response = await http.post(
-        url,
-        headers: {'accept': '*/*', 'Content-Type': 'application/json'},
-        body: jsonEncode({
-          "userEmail": emailController.text.trim(),
-          "password": passwordController.text.trim(),
-        }),
-      );
-
-      // var responseData = jsonDecode(response.body);
-      if (response.statusCode == 200) {
-        var responseData = jsonDecode(response.body);
-
-        // Check if login failed with message
-        if (response.statusCode == 200) {
-          if (responseData['statusCode'] == 400) {
-            final message = responseData['message'] ?? "Something went wrong";
-
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(message)));
-
-            // Check for unverified account
-            if (message == "Account UnVerified !!") {
-              await sendOTP(emailController.text.trim());
-
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder:
-                      (context) =>
-                          VerificationOTP(email: emailController.text.trim()),
-                ),
-              );
-            }
-
-            return;
-          }
-
-          //access token now
-          final token =
-              responseData['data']?['jwtAccessToken']?['access_Token'];
-
-          if (token == null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Login failed: token missing")),
-            );
-            return;
-          }
-
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('auth_token', token);
-
-          await fetchUserInfoAndNavigate(context);
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Server Error! Try again later.')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 
@@ -200,7 +80,6 @@ class _MyHomePageState extends State<MyHomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Logo and Welcome Card
                   Card(
                     color: Colors.white,
                     elevation: 2,
@@ -208,7 +87,7 @@ class _MyHomePageState extends State<MyHomePage> {
                       borderRadius: BorderRadius.circular(15),
                     ),
                     child: Padding(
-                      padding: EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(24),
                       child: Column(
                         children: [
                           Image.asset(
@@ -217,8 +96,7 @@ class _MyHomePageState extends State<MyHomePage> {
                             height: 180,
                             fit: BoxFit.contain,
                           ),
-                          SizedBox(height: 0),
-                          Text(
+                          const Text(
                             'Welcome Back!',
                             style: TextStyle(
                               fontSize: 24,
@@ -226,21 +104,16 @@ class _MyHomePageState extends State<MyHomePage> {
                               color: AppColors.primary,
                             ),
                           ),
-                          SizedBox(height: 8),
+                          const SizedBox(height: 8),
                           Text(
                             'Sign in to continue',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 16,
-                            ),
+                            style: TextStyle(color: Colors.grey[600], fontSize: 16),
                           ),
                         ],
                       ),
                     ),
                   ),
-                  SizedBox(height: 24),
-
-                  // Login Form Card
+                  const SizedBox(height: 24),
                   Card(
                     color: Colors.white,
                     elevation: 2,
@@ -248,34 +121,28 @@ class _MyHomePageState extends State<MyHomePage> {
                       borderRadius: BorderRadius.circular(15),
                     ),
                     child: Padding(
-                      padding: EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          const Text(
                             'Email',
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
-                          SizedBox(height: 8),
+                          const SizedBox(height: 8),
                           TextFormField(
                             controller: emailController,
                             keyboardType: TextInputType.emailAddress,
-                            decoration: _buildInputDecoration(
-                              'Enter your email',
-                              Icons.email,
-                            ),
-                            validator:
-                                (value) =>
-                                    value?.isEmpty ?? true
-                                        ? 'Email is required'
-                                        : null,
+                            decoration: _buildInputDecoration('Enter your email', Icons.email),
+                            validator: (v) =>
+                                (v?.isEmpty ?? true) ? 'Email is required' : null,
                           ),
-                          SizedBox(height: 16),
-                          Text(
+                          const SizedBox(height: 16),
+                          const Text(
                             'Password',
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
-                          SizedBox(height: 8),
+                          const SizedBox(height: 8),
                           TextFormField(
                             controller: passwordController,
                             obscureText: _isObscure,
@@ -284,33 +151,23 @@ class _MyHomePageState extends State<MyHomePage> {
                               Icons.lock,
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  _isObscure
-                                      ? Icons.visibility
-                                      : Icons.visibility_off,
+                                  _isObscure ? Icons.visibility : Icons.visibility_off,
                                   color: Colors.grey,
                                 ),
-                                onPressed:
-                                    () => setState(
-                                      () => _isObscure = !_isObscure,
-                                    ),
+                                onPressed: () =>
+                                    setState(() => _isObscure = !_isObscure),
                               ),
                             ),
-                            validator:
-                                (value) =>
-                                    value?.isEmpty ?? true
-                                        ? 'Password is required'
-                                        : null,
+                            validator: (v) =>
+                                (v?.isEmpty ?? true) ? 'Password is required' : null,
                           ),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
                               TextButton(
-                                onPressed:
-                                    () => Navigator.pushNamed(
-                                      context,
-                                      '/ForgotPassword',
-                                    ),
-                                child: Text(
+                                onPressed: () =>
+                                    Navigator.pushNamed(context, '/ForgotPassword'),
+                                child: const Text(
                                   'Forgot Password?',
                                   style: TextStyle(
                                     color: AppColors.primary,
@@ -324,29 +181,20 @@ class _MyHomePageState extends State<MyHomePage> {
                       ),
                     ),
                   ),
-                  SizedBox(height: 24),
-
-                  // Login Button
-                  ElevatedButton(
-                    onPressed:
-                        _isLoading
-                            ? null
-                            : () {
-                              if (_formKey.currentState!.validate()) {
-                                signInUser();
-                              }
-                            },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                  const SizedBox(height: 24),
+                  Consumer<AuthViewModel>(
+                    builder: (context, authVM, _) => ElevatedButton(
+                      onPressed: authVM.isLoading ? null : _signIn,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
-                    ),
-                    child:
-                        _isLoading
-                            ? SizedBox(
+                      child: authVM.isLoading
+                          ? const SizedBox(
                               height: 20,
                               width: 20,
                               child: CircularProgressIndicator(
@@ -354,19 +202,18 @@ class _MyHomePageState extends State<MyHomePage> {
                                 strokeWidth: 2,
                               ),
                             )
-                            : Text('Sign In', style: TextStyle(fontSize: 16)),
+                          : const Text('Sign In', style: TextStyle(fontSize: 16)),
+                    ),
                   ),
-                  SizedBox(height: 16),
-
-                  // Sign Up Link
+                  const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('Don\'t have an account?'),
+                      const Text("Don't have an account?"),
                       TextButton(
-                        onPressed:
-                            () => Navigator.pushNamed(context, '/accountType'),
-                        child: Text(
+                        onPressed: () =>
+                            Navigator.pushNamed(context, '/accountType'),
+                        child: const Text(
                           'Sign Up',
                           style: TextStyle(
                             color: AppColors.primary,
@@ -397,7 +244,7 @@ class _MyHomePageState extends State<MyHomePage> {
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: AppColors.primary, width: 2),
+        borderSide: const BorderSide(color: AppColors.primary, width: 2),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),

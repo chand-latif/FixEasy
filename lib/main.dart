@@ -1,9 +1,7 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'core/network/api_client.dart';
-import 'core/services/storage_service.dart';
 import 'data/repositories/auth_repository.dart';
 import 'data/repositories/booking_repository.dart';
 import 'data/repositories/company_repository.dart';
@@ -15,44 +13,23 @@ import 'presentation/viewmodels/seller_home_viewmodel.dart';
 import 'presentation/viewmodels/service_viewmodel.dart';
 import 'app.dart';
 
-/// Custom HTTP overrides for development (allows self-signed certificates)
-class MyHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context)
-      ..badCertificateCallback =
-          (X509Certificate cert, String host, int port) => true;
-  }
-}
-
 void main() async {
-  // Allow bad certificates in development
-  HttpOverrides.global = MyHttpOverrides();
-  
-  // Ensure Flutter is initialized
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize storage service
-  final storageService = StorageService();
-  await storageService.init();
-
-  // Create API client
-  final apiClient = ApiClient(storageService: storageService);
-
-  // Create repositories
-  final authRepository = AuthRepository(
-    apiClient: apiClient,
-    storageService: storageService,
+  await Supabase.initialize(
+    url: 'https://ldoljthtmrpsveavjcdb.supabase.co',
+    anonKey:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxkb2xqdGh0bXJwc3ZlYXZqY2RiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NDk4MjYsImV4cCI6MjA5ODEyNTgyNn0.77i3E2ECtQa7-N2ZKpBOxk4DkAy6VLHUcynFuOokGIA',
   );
-  final companyRepository = CompanyRepository(apiClient: apiClient);
-  final serviceRepository = ServiceRepository(apiClient: apiClient);
-  final bookingRepository = BookingRepository(apiClient: apiClient);
 
-  // Run the app with providers
+  final authRepository = AuthRepository();
+  final companyRepository = CompanyRepository();
+  final serviceRepository = ServiceRepository();
+  final bookingRepository = BookingRepository();
+
   runApp(
     MultiProvider(
       providers: [
-        // ViewModels
         ChangeNotifierProvider(
           create: (_) => AuthViewModel(authRepository: authRepository),
         ),

@@ -10,12 +10,6 @@ class AppConstants {
   /// App tagline
   static const String appTagline = 'Your Home Service Partner';
 
-  /// Shared preferences keys
-  static const String authTokenKey = 'auth_token';
-  static const String userTypeKey = 'user_type';
-  static const String userIdKey = 'user_id';
-  static const String companyIdKey = 'company_id';
-
   /// User types
   static const String customerType = 'Customer';
   static const String sellerType = 'Seller';
@@ -28,14 +22,16 @@ class AppConstants {
   static const String statusCancelled = 'Cancelled';
   static const String statusRejected = 'Rejected';
 
-  /// Service categories (matching backend IDs)
+  /// Service categories (matching Supabase seeded IDs)
   static const Map<String, int> categoryIds = {
-    'Plumber': 9,
-    'Painter': 10,
-    'Electrician': 11,
-    'AC Repair': 12,
-    'Cleaner': 13,
-    'Carpenter': 14,
+    'Plumbing': 1,
+    'Electrical': 2,
+    'Cleaning': 3,
+    'Painting': 4,
+    'Carpentry': 5,
+    'AC & Appliances': 6,
+    'Pest Control': 7,
+    'Shifting & Moving': 8,
   };
 
   /// Animation durations

@@ -1,38 +1,32 @@
-import '../../core/constants/api_constants.dart';
-import '../../core/network/api_client.dart';
+import 'dart:io';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/company_model.dart';
 
-/// Repository handling all company-related API calls.
 class CompanyRepository {
-  final ApiClient _apiClient;
+  SupabaseClient get _supabase => Supabase.instance.client;
 
-  CompanyRepository({required ApiClient apiClient}) : _apiClient = apiClient;
-
-  /// Get list of all companies
   Future<List<CompanyModel>> getAllCompanies() async {
-    final response = await _apiClient.get(
-      ApiConstants.listAllCompanies,
-      includeAuth: false,
-    );
+    final response = await _supabase
+        .from('company_profiles')
+        .select('*')
+        .order('created_at', ascending: false);
 
-    final List<dynamic> data = response['data'] ?? [];
-    return data.map((json) => CompanyModel.fromJson(json)).toList();
+    return (response as List)
+        .map((json) => CompanyModel.fromJson(json))
+        .toList();
   }
 
-  /// Get company profile by ID
   Future<CompanyModel> getCompanyProfile(int companyId) async {
-    final response = await _apiClient.get(
-      ApiConstants.getCompanyProfile,
-      queryParams: {'CompanyId': companyId},
-      includeAuth: false,
-    );
+    final response = await _supabase
+        .from('company_profiles')
+        .select('*')
+        .eq('id', companyId)
+        .single();
 
-    return CompanyModel.fromJson(response['data']);
+    return CompanyModel.fromJson(response);
   }
 
-  /// Create company profile (for sellers)
   Future<CompanyModel> createCompanyProfile({
-    required int userId,
     required String companyName,
     String? companyDescription,
     String? companyAddress,
@@ -41,24 +35,25 @@ class CompanyRepository {
     double? latitude,
     double? longitude,
   }) async {
-    final response = await _apiClient.post(
-      ApiConstants.createCompanyProfile,
-      body: {
-        'userId': userId,
-        'companyName': companyName,
-        'companyDescription': companyDescription,
-        'companyAddress': companyAddress,
-        'companyPhone': companyPhone,
-        'companyEmail': companyEmail,
-        'latitude': latitude,
-        'longitude': longitude,
-      },
-    );
+    final userId = _supabase.auth.currentUser!.id;
+    final response = await _supabase
+        .from('company_profiles')
+        .insert({
+          'user_id': userId,
+          'company_name': companyName,
+          'description': companyDescription,
+          'address': companyAddress,
+          'phone': companyPhone,
+          'email': companyEmail,
+          'latitude': latitude,
+          'longitude': longitude,
+        })
+        .select()
+        .single();
 
-    return CompanyModel.fromJson(response['data']);
+    return CompanyModel.fromJson(response);
   }
 
-  /// Update company profile
   Future<CompanyModel> updateCompanyProfile({
     required int companyId,
     String? companyName,
@@ -69,43 +64,49 @@ class CompanyRepository {
     double? latitude,
     double? longitude,
   }) async {
-    final response = await _apiClient.put(
-      ApiConstants.updateCompanyProfile,
-      body: {
-        'companyId': companyId,
-        'companyName': companyName,
-        'companyDescription': companyDescription,
-        'companyAddress': companyAddress,
-        'companyPhone': companyPhone,
-        'companyEmail': companyEmail,
-        'latitude': latitude,
-        'longitude': longitude,
-      },
-    );
+    final response = await _supabase
+        .from('company_profiles')
+        .update({
+          if (companyName != null) 'company_name': companyName,
+          if (companyDescription != null) 'description': companyDescription,
+          if (companyAddress != null) 'address': companyAddress,
+          if (companyPhone != null) 'phone': companyPhone,
+          if (companyEmail != null) 'email': companyEmail,
+          if (latitude != null) 'latitude': latitude,
+          if (longitude != null) 'longitude': longitude,
+        })
+        .eq('id', companyId)
+        .select()
+        .single();
 
-    return CompanyModel.fromJson(response['data']);
+    return CompanyModel.fromJson(response);
   }
 
-  /// Upload company logo
   Future<void> uploadCompanyLogo({
     required int companyId,
     required String logoPath,
   }) async {
-    await _apiClient.uploadFile(
-      '${ApiConstants.companyProfile}/UploadLogo',
-      filePath: logoPath,
-      fieldName: 'file',
-      fields: {'companyId': companyId.toString()},
-    );
+    final file = File(logoPath);
+    final fileName = '${companyId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final storagePath = '$companyId/$fileName';
+
+    await _supabase.storage
+        .from('company-logos')
+        .upload(storagePath, file, fileOptions: const FileOptions(upsert: true));
+
+    final publicUrl = _supabase.storage
+        .from('company-logos')
+        .getPublicUrl(storagePath);
+
+    await _supabase
+        .from('company_profiles')
+        .update({'logo': publicUrl})
+        .eq('id', companyId);
   }
 
-  /// Get featured companies (sorted by rating)
   Future<List<CompanyModel>> getFeaturedCompanies({int limit = 3}) async {
     final companies = await getAllCompanies();
-    
-    // Sort by total ratings descending
     companies.sort((a, b) => b.totalRatings.compareTo(a.totalRatings));
-    
     return companies.take(limit).toList();
   }
 }

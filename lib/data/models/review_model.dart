@@ -1,8 +1,7 @@
-/// Review model representing a service review from a customer.
 class ReviewModel {
   final int reviewId;
   final int serviceId;
-  final int userId;
+  final String userId; // UUID
   final int bookingId;
   final double rating;
   final String? comment;
@@ -24,38 +23,50 @@ class ReviewModel {
     this.userImage,
   });
 
-  /// Create ReviewModel from API JSON response
   factory ReviewModel.fromJson(Map<String, dynamic> json) {
+    // Handle nested profiles object from Supabase join
+    final profileData = json['profiles'];
+    final String? firstName = profileData is Map
+        ? profileData['first_name'] as String?
+        : null;
+    final String? lastName = profileData is Map
+        ? profileData['last_name'] as String?
+        : null;
+    final userName = (firstName != null || lastName != null)
+        ? '${firstName ?? ''} ${lastName ?? ''}'.trim()
+        : json['userName'] ?? json['reviewerName'];
+    final userImage = profileData is Map
+        ? profileData['profile_image'] as String?
+        : json['userImage'] ?? json['reviewerImage'];
+
     return ReviewModel(
-      reviewId: json['reviewId'] ?? json['serviceReviewId'] ?? 0,
-      serviceId: json['serviceId'] ?? json['companyServiceId'] ?? 0,
-      userId: json['userId'] ?? 0,
-      bookingId: json['bookingId'] ?? json['bookingServiceId'] ?? 0,
-      rating: (json['rating'] ?? json['serviceReviewRating'] ?? 0).toDouble(),
-      comment: json['comment'] ?? json['serviceReviewComment'],
-      createdAt: json['createdAt'] != null 
-          ? DateTime.tryParse(json['createdAt']) 
+      reviewId: json['id'] ?? json['reviewId'] ?? 0,
+      serviceId: json['service_id'] ?? json['serviceId'] ?? 0,
+      userId: (json['user_id'] ?? json['userId'] ?? '').toString(),
+      bookingId: json['booking_id'] ?? json['bookingId'] ?? 0,
+      rating: (json['rating'] ?? 0).toDouble(),
+      comment: json['comment'],
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'])
           : null,
-      userName: json['userName'] ?? json['reviewerName'],
-      userImage: json['userImage'] ?? json['reviewerImage'],
+      userName: userName,
+      userImage: userImage,
     );
   }
 
-  /// Convert ReviewModel to JSON for creating review
   Map<String, dynamic> toJson() {
     return {
-      'companyServiceId': serviceId,
-      'bookingServiceId': bookingId,
-      'serviceReviewRating': rating,
-      'serviceReviewComment': comment,
+      'service_id': serviceId,
+      'booking_id': bookingId,
+      'rating': rating,
+      'comment': comment,
     };
   }
 
-  /// Create a copy with modified fields
   ReviewModel copyWith({
     int? reviewId,
     int? serviceId,
-    int? userId,
+    String? userId,
     int? bookingId,
     double? rating,
     String? comment,

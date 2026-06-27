@@ -1,14 +1,11 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import '../theme.dart';
-import 'package:http/http.dart' as http;
-import '../verfication_otp.dart';
-// import 'package:http/io_client.dart';
-// import 'dart:io';
+import '../presentation/viewmodels/auth_viewmodel.dart';
 
 class SignUp extends StatefulWidget {
   final String accountType;
@@ -25,21 +22,17 @@ final TextEditingController passwordController = TextEditingController();
 final TextEditingController confirmPasswordController = TextEditingController();
 
 class _SignUpState extends State<SignUp> {
-  bool isLoading = false;
   bool isObscurePassword = true;
   bool isObscureConfirmPassword = true;
 
-  // Add validation state variables
   String? emailError;
   String? phoneError;
   String? passwordError;
   String? nameError;
 
-  // Image picking variables
   File? _selectedImage;
   final ImagePicker _picker = ImagePicker();
 
-  // Email validation
   void validateEmail(String email) {
     RegExp emailRegex = RegExp(r'^[a-zA-Z0-9.]+@[a-zA-Z0-9]+\.[a-zA-Z]+');
     setState(() {
@@ -53,7 +46,6 @@ class _SignUpState extends State<SignUp> {
     });
   }
 
-  // Phone validation
   void validatePhone(String phone) {
     setState(() {
       if (phone.isEmpty) {
@@ -66,7 +58,6 @@ class _SignUpState extends State<SignUp> {
     });
   }
 
-  // Password validation
   void validatePassword(String password) {
     setState(() {
       if (password.isEmpty) {
@@ -79,7 +70,6 @@ class _SignUpState extends State<SignUp> {
     });
   }
 
-  // Name validation
   void validateName(String name) {
     setState(() {
       if (name.isEmpty) {
@@ -103,7 +93,6 @@ class _SignUpState extends State<SignUp> {
         passwordController.text == confirmPasswordController.text;
   }
 
-  // Add this method to handle image picking
   Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? pickedFile = await _picker.pickImage(source: source);
@@ -113,63 +102,62 @@ class _SignUpState extends State<SignUp> {
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error picking image: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error picking image: $e')),
+        );
+      }
     }
   }
 
-  // Add this method to show image picker options
   void _showImagePickerOptions() {
     showModalBottomSheet(
       context: context,
-      builder:
-          (context) => Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Choose Profile Picture',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                Text(
-                  'Choose Profile Picture',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.camera);
+                  },
+                  icon: Icon(Icons.camera),
+                  label: Text('Camera'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
-                SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _pickImage(ImageSource.camera);
-                      },
-                      icon: Icon(Icons.camera),
-                      label: Text('Camera'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _pickImage(ImageSource.gallery);
-                      },
-                      icon: Icon(Icons.photo_library),
-                      label: Text('Gallery'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.gallery);
+                  },
+                  icon: Icon(Icons.photo_library),
+                  label: Text('Gallery'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
               ],
             ),
-          ),
+          ],
+        ),
+      ),
     );
   }
 
-  // Add this widget to display the selected image and provide an option to change it
   Widget _buildImagePicker() {
     return Column(
       children: [
@@ -180,10 +168,9 @@ class _SignUpState extends State<SignUp> {
               backgroundColor: Colors.grey[200],
               backgroundImage:
                   _selectedImage != null ? FileImage(_selectedImage!) : null,
-              child:
-                  _selectedImage == null
-                      ? Icon(Icons.person, size: 50, color: Colors.grey[400])
-                      : null,
+              child: _selectedImage == null
+                  ? Icon(Icons.person, size: 50, color: Colors.grey[400])
+                  : null,
             ),
             Positioned(
               bottom: 0,
@@ -211,106 +198,56 @@ class _SignUpState extends State<SignUp> {
     );
   }
 
-  // Update the signUpUser method to include image uploading
-  Future<void> signUpUser() async {
-    // Construct URL with query parameters
-    final baseUrl = "https://fixease.pk/api/User/SignUP";
-    final queryParams = {
-      'UserEmail': emailController.text,
-      'Password': passwordController.text,
-      'UserType': widget.accountType,
-      'UserName': nameController.text,
-      'Phone': phoneController.text,
-    };
+  Future<void> _signUp() async {
+    if (!isFormValid()) return;
 
-    final uri = Uri.parse(baseUrl).replace(queryParameters: queryParams);
+    final nameParts = nameController.text.trim().split(' ');
+    final firstName = nameParts.first;
+    final lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
 
-    try {
-      // Create multipart request
-      var request = http.MultipartRequest('POST', uri);
+    final authVM = context.read<AuthViewModel>();
+    final success = await authVM.signUp(
+      email: emailController.text.trim(),
+      password: passwordController.text,
+      firstName: firstName,
+      lastName: lastName,
+      phoneNumber: phoneController.text.trim(),
+      userType: widget.accountType,
+    );
 
-      // Add image file if selected
-      if (_selectedImage != null) {
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            'UserPicture',
-            _selectedImage!.path,
+    if (!mounted) return;
+
+    if (success) {
+      nameController.clear();
+      emailController.clear();
+      phoneController.clear();
+      passwordController.clear();
+      confirmPasswordController.clear();
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: Text('Registration Successful!'),
+          content: Text(
+            'A confirmation email has been sent to ${emailController.text}. '
+            'Please check your inbox and verify your email before signing in.',
           ),
-        );
-      }
-
-      // Send the request
-      final response = await request.send();
-      final responseData = await response.stream.bytesToString();
-      final jsonResponse = jsonDecode(responseData);
-
-      if (response.statusCode == 200 && jsonResponse["statusCode"] == 200) {
-        // Send OTP after successful registration
-        try {
-          await sendOtp(emailController.text);
-
-          // Show success message
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Registration successful. OTP sent to your email"),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.pushReplacementNamed(context, '/home');
+              },
+              child: Text('Go to Login'),
             ),
-          );
-
-          // Navigate to OTP verification
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => VerifyOTPPage(email: emailController.text),
-            ),
-          );
-        } catch (e) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                "Registration successful but failed to send OTP: $e",
-              ),
-            ),
-          );
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(jsonResponse["message"] ?? "Registration failed"),
-          ),
-        );
-      }
-    } catch (e) {
-      print("Signup error: $e");
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Something went wrong: $e")));
-    }
-  }
-
-  Future<void> sendOtp(String email) async {
-    final url = Uri.parse("https://fixease.pk/api/User/ResendVerificationOTP");
-
-    final body = {"email": email};
-
-    try {
-      final response = await http.put(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(body),
+          ],
+        ),
       );
-
-      final responseData = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        // OTP sent successfully
-        print("OTP sent to $email");
-      } else {
-        print(
-          "Failed to send OTP: ${responseData["message"] ?? "Unknown error"}",
-        );
-      }
-    } catch (e) {
-      print("Error sending OTP: $e");
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(authVM.errorMessage ?? 'Registration failed')),
+      );
     }
   }
 
@@ -329,7 +266,6 @@ class _SignUpState extends State<SignUp> {
             padding: const EdgeInsets.all(20.0),
             child: Column(
               children: [
-                // Welcome Card
                 Card(
                   color: Colors.white,
                   elevation: 2,
@@ -361,12 +297,8 @@ class _SignUpState extends State<SignUp> {
                   ),
                 ),
                 SizedBox(height: 20),
-
-                // Profile Picture Picker
-                _buildImagePicker(), // Add image picker widget
+                _buildImagePicker(),
                 SizedBox(height: 20),
-
-                // Form Card
                 Card(
                   color: Colors.white,
                   elevation: 2,
@@ -413,9 +345,7 @@ class _SignUpState extends State<SignUp> {
                           passwordController,
                           isObscurePassword,
                           (value) {
-                            setState(
-                              () => isObscurePassword = !isObscurePassword,
-                            );
+                            setState(() => isObscurePassword = !isObscurePassword);
                           },
                           validatePassword,
                           passwordError,
@@ -426,11 +356,9 @@ class _SignUpState extends State<SignUp> {
                           confirmPasswordController,
                           isObscureConfirmPassword,
                           (value) {
-                            setState(
-                              () =>
-                                  isObscureConfirmPassword =
-                                      !isObscureConfirmPassword,
-                            );
+                            setState(() =>
+                                isObscureConfirmPassword =
+                                    !isObscureConfirmPassword);
                           },
                           null,
                           null,
@@ -440,31 +368,20 @@ class _SignUpState extends State<SignUp> {
                   ),
                 ),
                 SizedBox(height: 24),
-
-                // Submit Button
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    minimumSize: Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                Consumer<AuthViewModel>(
+                  builder: (context, authVM, _) => ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      minimumSize: Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                  ),
-                  onPressed:
-                      isLoading
-                          ? null
-                          : () async {
-                            if (isFormValid()) {
-                              setState(() => isLoading = true);
-                              await signUpUser();
-                              setState(() => isLoading = false);
-                            }
-                          },
-                  child:
-                      isLoading
-                          ? Row(
+                    onPressed: authVM.isLoading ? null : _signUp,
+                    child: authVM.isLoading
+                        ? Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               SizedBox(
@@ -479,11 +396,10 @@ class _SignUpState extends State<SignUp> {
                               Text('Creating Account...'),
                             ],
                           )
-                          : Text('Sign Up', style: TextStyle(fontSize: 16)),
+                        : Text('Sign Up', style: TextStyle(fontSize: 16)),
+                  ),
                 ),
                 SizedBox(height: 16),
-
-                // Sign In Link
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -528,7 +444,7 @@ class _SignUpState extends State<SignUp> {
           keyboardType: keyboardType,
           inputFormatters: inputFormatters,
           decoration: InputDecoration(
-            hintText: 'Enter your ${label.toLowerCase()}', // Add hint text
+            hintText: 'Enter your ${label.toLowerCase()}',
             prefixIcon: Icon(icon, color: AppColors.primary),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             focusedBorder: OutlineInputBorder(
@@ -566,10 +482,9 @@ class _SignUpState extends State<SignUp> {
           obscureText: isObscure,
           onChanged: onChanged,
           decoration: InputDecoration(
-            hintText:
-                label == 'Password'
-                    ? 'Enter your password'
-                    : 'Re-enter your password', // Add contextual hint text
+            hintText: label == 'Password'
+                ? 'Enter your password'
+                : 'Re-enter your password',
             prefixIcon: Icon(Icons.lock, color: AppColors.primary),
             suffixIcon: IconButton(
               icon: Icon(
@@ -594,34 +509,5 @@ class _SignUpState extends State<SignUp> {
         ),
       ],
     );
-  }
-}
-
-// }
-
-Future<void> sendOtp(String email) async {
-  final url = Uri.parse("https://fixease.pk/api/User/ResendVerificationOTP");
-
-  final body = {"email": email};
-
-  try {
-    final response = await http.put(
-      url,
-      headers: {"Content-Type": "application/json"},
-      body: jsonEncode(body),
-    );
-
-    final responseData = jsonDecode(response.body);
-
-    if (response.statusCode == 200) {
-      // OTP sent successfully
-      print("OTP sent to $email");
-    } else {
-      print(
-        "Failed to send OTP: ${responseData["message"] ?? "Unknown error"}",
-      );
-    }
-  } catch (e) {
-    print("Error sending OTP: $e");
   }
 }
