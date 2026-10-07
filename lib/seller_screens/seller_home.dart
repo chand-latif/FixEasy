@@ -1,13 +1,12 @@
-import 'package:fix_easy/seller_screens/create_service.dart';
-import 'package:fix_easy/seller_screens/my_services_screen.dart';
-import 'package:fix_easy/theme.dart';
 import 'package:flutter/material.dart';
-import 'nav_bar_seller.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'booking_request_details_screen.dart';
+import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shimmer/shimmer.dart';
+import '../theme.dart';
+import '../presentation/viewmodels/auth_viewmodel.dart';
+import 'nav_bar_seller.dart';
+import 'create_service.dart';
+import 'my_services_screen.dart';
 
 class ServiceProviderHome extends StatefulWidget {
   const ServiceProviderHome({super.key});
@@ -17,9 +16,9 @@ class ServiceProviderHome extends StatefulWidget {
 }
 
 class _ServiceProviderHomeState extends State<ServiceProviderHome> {
-  // Stats variables from API
+  SupabaseClient get _supabase => Supabase.instance.client;
+
   int pendingBookings = 0;
-  int acceptedBookings = 0;
   int inProgressBookings = 0;
   int finishedBookings = 0;
   double averageRating = 0.0;
@@ -27,8 +26,6 @@ class _ServiceProviderHomeState extends State<ServiceProviderHome> {
   int? companyId;
   bool isLoading = true;
   List<Map<String, dynamic>> recentBookings = [];
-
-  // Company info
   String? companyName;
   String? companyLogo;
   bool isLoadingCompanyInfo = true;
@@ -36,202 +33,122 @@ class _ServiceProviderHomeState extends State<ServiceProviderHome> {
   @override
   void initState() {
     super.initState();
-    fetchUserInfo();
-    fetchStats();
-    fetchRecentBookings();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
   }
 
-  Future<void> fetchStats() async {
+  Future<void> _loadData() async {
+    final authVM = context.read<AuthViewModel>();
+    companyId = authVM.companyId;
+    if (companyId == null) return;
+
+    await Future.wait([
+      _fetchCompanyInfo(),
+      _fetchStats(),
+      _fetchRecentBookings(),
+    ]);
+  }
+
+  Future<void> _fetchCompanyInfo() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      if (token == null) throw Exception('No auth token found');
-
-      final response = await http.get(
-        Uri.parse(
-          'https://fixease.pk/api/BookingService/getServiceProviderStats',
-        ),
-        headers: {'Authorization': 'Bearer $token', 'accept': '*/*'},
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['succeeded'] && data['data'] != null) {
-          setState(() {
-            pendingBookings = data['data']['pending'] ?? 0;
-            acceptedBookings = data['data']['accepted'] ?? 0;
-            inProgressBookings = data['data']['inProgress'] ?? 0;
-            finishedBookings = data['data']['finished'] ?? 0;
-            isLoading = false;
-          });
-        }
-      }
-    } catch (e) {
-      print('Error fetching stats: $e');
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
-    }
-  }
-
-  Future<void> fetchRecentBookings() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      if (token == null) throw Exception('No auth token found');
-
-      final response = await http.get(
-        Uri.parse('https://fixease.pk/api/BookingService/GetAllBookings'),
-        headers: {'Authorization': 'Bearer $token', 'accept': '*/*'},
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['data'] != null) {
-          setState(() {
-            // Take only the first 3 bookings
-            recentBookings = List<Map<String, dynamic>>.from(
-              (data['data'] as List).take(3),
-            );
-          });
-        }
-      }
-    } catch (e) {
-      print('Error fetching recent bookings: $e');
-    }
-  }
-
-  Future<void> updateBookingStatus(int bookingId, String status) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      if (token == null) throw Exception('No auth token found');
-
-      final response = await http.put(
-        Uri.parse(
-          'https://fixease.pk/api/BookingService/SetBookingStatus?BookingId=$bookingId&Status=$status',
-        ),
-        headers: {'Authorization': 'Bearer $token', 'accept': '*/*'},
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['succeeded']) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(data['message'] ?? 'Status updated successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
-          // Refresh data
-          fetchStats();
-          fetchRecentBookings();
-        }
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating booking: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> fetchUserInfo() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
-
-    if (token == null) {
-      // No token found, navigate to login/home
-      Navigator.pushNamed(context, '/home');
-      return;
-    }
-
-    // Token exists — get user info
-    final response = await http.get(
-      Uri.parse("https://fixease.pk/api/User/GetUserInformation"),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (!mounted) return;
-      setState(() {
-        companyId = data['data']['companyId'];
-        // After getting companyId, fetch company profile
-        fetchCompanyProfile();
-      });
-
-      // Then fetch company services to calculate rating
-      final servicesResponse = await http.get(
-        Uri.parse(
-          'https://fixease.pk/api/CompanyServices/getListOfPublishedCompanyServices?CompanyId=$companyId',
-        ),
-      );
-
-      if (servicesResponse.statusCode == 200) {
-        final servicesData = json.decode(servicesResponse.body);
-        final services = List<Map<String, dynamic>>.from(servicesData['data']);
-
-        int totalRatings = 0;
-        double totalRatingSum = 0;
-
-        for (var service in services) {
-          final serviceRating = service['serviceRating'];
-          if (serviceRating != null) {
-            totalRatings += serviceRating['totalRatings'] as int;
-            totalRatingSum +=
-                (serviceRating['averageRating'] as num) *
-                serviceRating['totalRatings'];
-          }
-        }
-
-        if (mounted) {
-          setState(() {
-            this.totalRatings = totalRatings;
-            this.averageRating =
-                totalRatings > 0 ? totalRatingSum / totalRatings : 0.0;
-          });
-        }
-      }
-    } else {
-      print('api call error');
-    }
-  }
-
-  // Add this new method
-  Future<void> fetchCompanyProfile() async {
-    try {
-      final response = await http.get(
-        Uri.parse(
-          "https://fixease.pk/api/CompanyProfile/ListCompanyProfile?CompanyId=$companyId",
-        ),
-        headers: {'accept': '*/*'},
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final companyData = data['data'];
-
-        if (mounted) {
-          setState(() {
-            companyName = companyData['companyName'];
-            companyLogo = companyData['companyLogo'];
-            isLoadingCompanyInfo = false;
-          });
-        }
-      }
-    } catch (e) {
-      print('Error fetching company profile: $e');
+      final data = await _supabase
+          .from('company_profiles')
+          .select('company_name, logo')
+          .eq('id', companyId!)
+          .single();
       if (mounted) {
         setState(() {
+          companyName = data['company_name'];
+          companyLogo = data['logo'];
           isLoadingCompanyInfo = false;
         });
       }
+    } catch (e) {
+      if (mounted) setState(() => isLoadingCompanyInfo = false);
+    }
+  }
+
+  Future<void> _fetchStats() async {
+    try {
+      final data = await _supabase
+          .from('bookings')
+          .select('status')
+          .eq('company_id', companyId!);
+      if (mounted) {
+        setState(() {
+          pendingBookings =
+              data.where((b) => b['status'] == 'Pending').length;
+          inProgressBookings =
+              data.where((b) => b['status'] == 'InProgress').length;
+          finishedBookings =
+              data.where((b) => b['status'] == 'Completed').length;
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _fetchRecentBookings() async {
+    try {
+      final data = await _supabase
+          .from('bookings')
+          .select('*, services(name), profiles!customer_id(first_name, last_name)')
+          .eq('company_id', companyId!)
+          .order('created_at', ascending: false)
+          .limit(3);
+      if (mounted) {
+        setState(() {
+          recentBookings = List<Map<String, dynamic>>.from(data);
+        });
+      }
+    } catch (e) {
+      // Silently fail — bookings section will just be empty
+    }
+  }
+
+  String _customerName(Map<String, dynamic> booking) {
+    final p = booking['profiles'];
+    if (p == null) return 'Customer';
+    return '${p['first_name'] ?? ''} ${p['last_name'] ?? ''}'.trim();
+  }
+
+  String _serviceName(Map<String, dynamic> booking) {
+    final s = booking['services'];
+    return s?['name'] ?? 'Service';
+  }
+
+  String _formatDate(dynamic date) {
+    if (date == null) return 'N/A';
+    try {
+      final dt = DateTime.parse(date.toString());
+      return '${dt.day}/${dt.month}/${dt.year}';
+    } catch (_) {
+      return date.toString();
+    }
+  }
+
+  Color _statusColor(String? status) {
+    switch (status) {
+      case 'Pending': return Colors.orange;
+      case 'Accepted': return Colors.blue;
+      case 'InProgress': return Colors.indigo;
+      case 'Completed': return Colors.green;
+      case 'Rejected':
+      case 'Cancelled': return Colors.red;
+      default: return Colors.grey;
+    }
+  }
+
+  IconData _statusIcon(String? status) {
+    switch (status) {
+      case 'Pending': return Icons.schedule;
+      case 'Accepted': return Icons.thumb_up_outlined;
+      case 'InProgress': return Icons.engineering;
+      case 'Completed': return Icons.check_circle_outline;
+      case 'Rejected':
+      case 'Cancelled': return Icons.cancel_outlined;
+      default: return Icons.circle_outlined;
     }
   }
 
@@ -242,412 +159,231 @@ class _ServiceProviderHomeState extends State<ServiceProviderHome> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: AppColors.primary,
-        centerTitle: true, // Add this
-        title: Image.asset(
-          'assets/FixEasy.png',
-          height: 100, // Adjust height as needed
-          fit: BoxFit.contain,
-        ),
+        centerTitle: true,
+        title: Image.asset('assets/FixEasy.png', height: 100, fit: BoxFit.contain),
         actions: [
-          // Profile icon that navigates to profile
           IconButton(
-            icon: Icon(Icons.person_outline, color: Colors.white),
+            icon: const Icon(Icons.person_outline, color: Colors.white),
             onPressed: () => Navigator.pushNamed(context, '/sellerProfile'),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Welcome Section
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.symmetric(vertical: 30, horizontal: 15),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.cyan, Colors.teal],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.cyan.withOpacity(0.3),
-                    blurRadius: 20,
-                    offset: Offset(0, 10),
-                  ),
-                ],
+      body: RefreshIndicator(
+        onRefresh: _loadData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildWelcomeCard(),
+              const SizedBox(height: 20),
+              _buildServiceManagement(),
+              const SizedBox(height: 24),
+              const Text(
+                'Booking Overview',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              companyName ?? 'Loading...',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              'Welcome back! 👋',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.white.withOpacity(0.9),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (!isLoadingCompanyInfo)
-                        Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            image:
-                                companyLogo != null
-                                    ? DecorationImage(
-                                      image: NetworkImage(
-                                        'https://fixease.pk$companyLogo',
-                                      ),
-                                      fit: BoxFit.cover,
-                                    )
-                                    : null,
-                          ),
-                          child:
-                              companyLogo == null
-                                  ? Icon(
-                                    Icons.business,
-                                    color: Colors.grey,
-                                    size: 30,
-                                  )
-                                  : null,
-                        )
-                      else
-                        Shimmer.fromColors(
-                          baseColor: Colors.grey[300]!,
-                          highlightColor: Colors.grey[100]!,
-                          child: Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
+              const SizedBox(height: 16),
+              isLoading ? _buildOverviewShimmer() : _buildBookingOverview(),
+              const SizedBox(height: 24),
+              const Text(
+                'Recent Bookings',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
-            ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(0, 15, 0, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Service Management',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    spacing: 20,
-                    children: [
-                      Column(
-                        children: [
-                          Container(
-                            width: 60, // Added fixed width
-                            height: 60, // Added fixed height
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: AppColors.primary,
-                            ),
-                            child: IconButton(
-                              icon: Icon(Icons.add_circle_outline, size: 28),
-                              onPressed: () {
-                                // Navigate to create new service
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder:
-                                        (context) => CreateServiceScreen(
-                                          companyID: companyId ?? 0,
-                                        ),
-                                  ),
-                                );
-                              },
-                              color: Colors.white,
-                            ),
-                          ),
-                          SizedBox(height: 8),
-                          Text(
-                            'Create New\nService',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        children: [
-                          Container(
-                            width: 60, // Added fixed width
-                            height: 60, // Added fixed height
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.teal,
-                            ),
-                            child: IconButton(
-                              icon: Icon(Icons.build_circle_outlined, size: 28),
-                              onPressed: () {
-                                // Navigate to my services
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder:
-                                        (context) => MyServicesScreen(
-                                          companyId: companyId ?? 0,
-                                        ),
-                                  ),
-                                );
-                              },
-                              color: Colors.white,
-                            ),
-                          ),
-                          SizedBox(height: 8),
-                          Text(
-                            'My\nServices',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Booking Status Cards
-            Text(
-              'Booking Overview',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-
-            SizedBox(height: 16),
-
-            // Updated booking overview section
-            if (isLoading)
-              _buildBookingOverviewShimmer()
-            else
-              _buildBookingOverview(),
-
-            SizedBox(height: 24),
-
-            // Recent Bookings
-            Text(
-              'Recent Bookings',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-
-            SizedBox(height: 16),
-
-            _buildRecentBookingsList(),
-
-            SizedBox(height: 24),
-          ],
+              const SizedBox(height: 16),
+              _buildRecentBookings(),
+              const SizedBox(height: 24),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: NavBarSeller(),
     );
   }
 
-  Widget _buildBookingCard(
-    String title,
-    String count,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.all(15),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 15,
-              offset: Offset(0, 3),
-            ),
-          ],
+  Widget _buildWelcomeCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 15),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Colors.cyan, Colors.teal],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        child: Column(
-          children: [
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.cyan.withValues(alpha: 0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isLoadingCompanyInfo ? 'Loading...' : (companyName ?? 'My Company'),
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Welcome back!',
+                  style: TextStyle(fontSize: 16, color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+          if (isLoadingCompanyInfo)
+            Shimmer.fromColors(
+              baseColor: Colors.white24,
+              highlightColor: Colors.white38,
+              child: Container(
+                width: 60,
+                height: 60,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            )
+          else
             Container(
-              width: 50,
-              height: 50,
+              width: 60,
+              height: 60,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
+                color: Colors.white,
+                shape: BoxShape.circle,
+                image: companyLogo != null && companyLogo!.isNotEmpty
+                    ? DecorationImage(
+                        image: NetworkImage(companyLogo!),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
               ),
-              child: Icon(icon, color: color, size: 24),
+              child: companyLogo == null || companyLogo!.isEmpty
+                  ? const Icon(Icons.business, color: Colors.grey, size: 30)
+                  : null,
             ),
-            SizedBox(height: 12),
-            Text(
-              count,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            SizedBox(height: 4),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 15,
-            offset: Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 24),
-          SizedBox(height: 16),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
+  Widget _buildServiceManagement() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Service Management',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _buildActionButton(
+              icon: Icons.add_circle_outline,
+              label: 'Create New\nService',
+              color: AppColors.primary,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CreateServiceScreen(companyID: companyId ?? 0),
+                ),
+              ),
             ),
+            const SizedBox(width: 20),
+            _buildActionButton(
+              icon: Icons.build_circle_outlined,
+              label: 'My\nServices',
+              color: Colors.teal,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MyServicesScreen(companyId: companyId ?? 0),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+            child: Icon(icon, color: Colors.white, size: 28),
           ),
-          SizedBox(height: 4),
-          Text(title, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
-        ],
-      ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        ),
+      ],
     );
   }
 
   Widget _buildBookingOverview() {
-    return Container(
-      child: GridView.count(
-        shrinkWrap: true,
-        crossAxisCount: 2,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-        childAspectRatio: 1.5, // Changed from 1.5 to 1.3 to make cards taller
-        physics: NeverScrollableScrollPhysics(),
-        children: [
-          _buildBookingOverviewCard(
-            'Pending Requests',
-            pendingBookings.toString(),
-            Icons.schedule,
-            Colors.orange,
-            () => Navigator.pushNamed(context, '/sellerBookingRequests'),
-          ),
-          _buildBookingOverviewCard(
-            'In Progress',
-            inProgressBookings.toString(),
-            Icons.engineering,
-            Colors.blue,
-            () => Navigator.pushNamed(context, '/sellerBookingRequests'),
-          ),
-          _buildBookingOverviewCard(
-            'Completed Jobs',
-            finishedBookings.toString(),
-            Icons.check_circle_outline,
-            Colors.green,
-            () => Navigator.pushNamed(context, '/sellerBookingRequests'),
-          ),
-          _buildRatingCard(
-            'Rating',
-            '$totalRatings Reviews',
-            averageRating.toStringAsFixed(1),
-            Icons.star,
-            Colors.amber,
-          ),
-        ],
-      ),
+    return GridView.count(
+      shrinkWrap: true,
+      crossAxisCount: 2,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      childAspectRatio: 1.5,
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        _buildOverviewCard('Pending', pendingBookings.toString(),
+            Icons.schedule, Colors.orange,
+            () => Navigator.pushNamed(context, '/sellerBookingRequests')),
+        _buildOverviewCard('In Progress', inProgressBookings.toString(),
+            Icons.engineering, Colors.blue,
+            () => Navigator.pushNamed(context, '/sellerBookingRequests')),
+        _buildOverviewCard('Completed', finishedBookings.toString(),
+            Icons.check_circle_outline, Colors.green,
+            () => Navigator.pushNamed(context, '/sellerBookingRequests')),
+        _buildRatingCard(),
+      ],
     );
   }
 
-  Widget _buildBookingOverviewCard(
-    String title,
-    String count,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-  ) {
+  Widget _buildOverviewCard(String title, String count, IconData icon,
+      Color color, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               blurRadius: 10,
-              offset: Offset(0, 4),
+              offset: const Offset(0, 4),
             ),
           ],
         ),
@@ -657,56 +393,39 @@ class _ServiceProviderHomeState extends State<ServiceProviderHome> {
             Row(
               children: [
                 Container(
-                  padding: EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(icon, color: color, size: 20),
                 ),
-                SizedBox(width: 12),
-                Text(
-                  count,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
+                const SizedBox(width: 12),
+                Text(count,
+                    style: const TextStyle(
+                        fontSize: 24, fontWeight: FontWeight.bold)),
               ],
             ),
-            SizedBox(height: 8),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+            const SizedBox(height: 8),
+            Text(title,
+                style: TextStyle(fontSize: 14, color: Colors.grey[600])),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildRatingCard(
-    String title,
-    String subtitle,
-    String rating,
-    IconData icon,
-    Color color,
-  ) {
+  Widget _buildRatingCard() {
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.1),
+            color: Colors.amber.withValues(alpha: 0.1),
             blurRadius: 10,
-            offset: Offset(0, 4),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -716,316 +435,164 @@ class _ServiceProviderHomeState extends State<ServiceProviderHome> {
           Row(
             children: [
               Container(
-                padding: EdgeInsets.all(8),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: Colors.amber.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(icon, color: color, size: 20),
+                child: const Icon(Icons.star, color: Colors.amber, size: 20),
               ),
-              SizedBox(width: 12),
-              Text(
-                rating,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
+              const SizedBox(width: 12),
+              Text(averageRating.toStringAsFixed(1),
+                  style: const TextStyle(
+                      fontSize: 24, fontWeight: FontWeight.bold)),
             ],
           ),
-          SizedBox(height: 8),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+          const SizedBox(height: 8),
+          Text('$totalRatings Reviews',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600])),
         ],
       ),
     );
   }
 
-  Widget _buildBookingOverviewShimmer() {
-    return Row(
-      children:
-          List.generate(
-            3,
-            (index) => Expanded(
-              child: Container(
-                margin: EdgeInsets.symmetric(horizontal: index == 1 ? 12 : 0),
-                padding: EdgeInsets.all(15),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
-                      blurRadius: 15,
-                      offset: Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Shimmer.fromColors(
-                  baseColor: Colors.grey[300]!,
-                  highlightColor: Colors.grey[100]!,
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      SizedBox(height: 12),
-                      Container(width: 40, height: 24, color: Colors.white),
-                      SizedBox(height: 4),
-                      Container(width: 60, height: 12, color: Colors.white),
-                    ],
-                  ),
-                ),
-              ),
+  Widget _buildOverviewShimmer() {
+    return GridView.count(
+      shrinkWrap: true,
+      crossAxisCount: 2,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      childAspectRatio: 1.5,
+      physics: const NeverScrollableScrollPhysics(),
+      children: List.generate(4, (_) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Shimmer.fromColors(
+            baseColor: Colors.grey[300]!,
+            highlightColor: Colors.grey[100]!,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(width: 40, height: 40, color: Colors.white),
+                const SizedBox(height: 8),
+                Container(width: 60, height: 16, color: Colors.white),
+              ],
             ),
-          ).toList(),
+          ),
+        );
+      }),
     );
   }
 
-  Widget _buildRecentBookingsList() {
+  Widget _buildRecentBookings() {
     if (recentBookings.isEmpty) {
-      return Center(child: Text('No recent bookings'));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Column(
+            children: [
+              Icon(Icons.inbox_outlined, size: 48, color: Colors.grey[400]),
+              const SizedBox(height: 12),
+              Text('No bookings yet',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 16)),
+            ],
+          ),
+        ),
+      );
     }
 
     return Column(
-      children:
-          recentBookings.map((booking) {
-            return GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder:
-                        (context) => BookingRequestDetailsScreen(
-                          booking: booking,
-                          onStatusChanged: () {
-                            fetchStats();
-                            fetchRecentBookings();
-                          },
-                        ),
-                  ),
-                );
-              },
-              child: Card(
-                margin: EdgeInsets.only(bottom: 12),
-                color: Colors.white,
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: recentBookings.map((booking) {
+        final status = booking['status'] as String?;
+        return Card(
+          color: Colors.white,
+          margin: const EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _customerName(booking),
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _statusColor(status).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
+                          Icon(_statusIcon(status),
+                              size: 14, color: _statusColor(status)),
+                          const SizedBox(width: 4),
                           Text(
-                            booking['customerName'] ?? 'N/A',
+                            status ?? 'Unknown',
                             style: TextStyle(
-                              fontSize: 16,
+                              color: _statusColor(status),
+                              fontSize: 12,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                         ],
                       ),
-                      SizedBox(height: 8),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _serviceName(booking),
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+                if (booking['description'] != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    booking['description'],
+                    style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.calendar_today,
+                        size: 14, color: Colors.grey[500]),
+                    const SizedBox(width: 4),
+                    Text(
+                      _formatDate(booking['booking_date']),
+                      style:
+                          TextStyle(color: Colors.grey[600], fontSize: 13),
+                    ),
+                    if (booking['total_price'] != null) ...[
+                      const Spacer(),
                       Text(
-                        booking['description'] ?? 'No description',
-                        style: TextStyle(color: Colors.grey[600]),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.schedule,
-                            size: 16,
-                            color: AppColors.primary,
-                          ),
-                          SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              'Proposed: ${formatDateTime(booking['customerProposedTime'])}',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.category,
-                            size: 16,
-                            color: AppColors.primary,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            booking['category'] ?? 'N/A',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      // Price display section
-                      if (booking['status'] == 'InProgress' ||
-                          booking['status'] == 'Completed' ||
-                          booking['status'] == 'finished') ...[
-                        SizedBox(height: 16),
-                        Container(
-                          padding: EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.green[200]!),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.payment, color: Colors.green),
-                              SizedBox(width: 8),
-                              Text(
-                                'Agreed Price: ',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  color: Colors.grey[700],
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                'Rs. ${booking['finalPrice']?.toString() ?? 'N/A'}',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  color: Colors.green[700],
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-
-                      SizedBox(height: 12),
-                      // Status indicator - similar to booking requests
-                      Container(
-                        width: double.infinity,
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: _getStatusColor(
-                            booking['status'],
-                          ).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey[200]!),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              _getStatusIcon(booking['status']),
-                              color: _getStatusColor(booking['status']),
-                              size: 18,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              _getStatusText(booking['status']),
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: _getStatusColor(booking['status']),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
+                        'PKR ${booking['total_price']}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primary,
                         ),
                       ),
                     ],
-                  ),
+                  ],
                 ),
-              ),
-            );
-          }).toList(),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
-  }
-
-  String _getStatusText(String? status) {
-    switch (status?.toLowerCase()) {
-      case 'pending':
-        return 'Pending Approval';
-      case 'accept':
-        return 'Waiting for Customer Confirmation';
-      case 'inprogress':
-        return 'Work in Progress';
-      case 'completed':
-        return 'Waiting for Customer Approval';
-      case 'finished':
-        return 'Service Completed';
-      case 'reject':
-        return 'Booking Rejected';
-      default:
-        return status?.toUpperCase() ?? 'N/A';
-    }
-  }
-
-  Color _getStatusColor(String? status) {
-    switch (status?.toLowerCase()) {
-      case 'pending':
-        return Colors.orange;
-      case 'inprogress':
-        return Colors.blue;
-      case 'completed':
-        return Colors.green;
-      case 'reject':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  IconData _getStatusIcon(String? status) {
-    switch (status?.toLowerCase()) {
-      case 'pending':
-        return Icons.schedule;
-      case 'inprogress':
-        return Icons.engineering;
-      case 'completed':
-        return Icons.check_circle;
-      case 'reject':
-        return Icons.cancel;
-      default:
-        return Icons.circle;
-    }
-  }
-
-  String formatDateTime(dynamic dateTime) {
-    if (dateTime == null) return 'N/A';
-    try {
-      DateTime dt;
-      if (dateTime is String) {
-        dt = DateTime.parse(dateTime);
-      } else if (dateTime is DateTime) {
-        dt = dateTime;
-      } else {
-        return dateTime.toString();
-      }
-      return "${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}";
-    } catch (e) {
-      return dateTime.toString();
-    }
   }
 }

@@ -48,11 +48,17 @@ class AuthViewModel extends BaseViewModel {
       setSuccess();
       return true;
     } catch (e) {
-      final msg = e.toString();
-      if (msg.contains('Email not confirmed')) {
-        setError('Please verify your email before signing in.');
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('email not confirmed') || msg.contains('email_not_confirmed')) {
+        setError('Please verify your email first. Check your inbox for the confirmation link.');
+      } else if (msg.contains('invalid_credentials') || msg.contains('invalid login credentials')) {
+        setError('Incorrect email or password. Please try again.');
+      } else if (msg.contains('network') || msg.contains('socket') || msg.contains('connection')) {
+        setError('No internet connection. Please check your network and try again.');
+      } else if (msg.contains('pgrst') || msg.contains('postgrest')) {
+        setError('Unable to load your profile. Please try signing in again.');
       } else {
-        setError(msg);
+        setError('Sign in failed. Please try again.');
       }
       return false;
     }
@@ -79,7 +85,18 @@ class AuthViewModel extends BaseViewModel {
       setSuccess();
       return true;
     } catch (e) {
-      setError(e.toString());
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('already registered') || msg.contains('user_already_exists') || msg.contains('already been registered')) {
+        setError('An account with this email already exists. Please sign in instead.');
+      } else if (msg.contains('invalid email') || msg.contains('invalid_email')) {
+        setError('Please enter a valid email address.');
+      } else if (msg.contains('weak_password') || msg.contains('password should be')) {
+        setError('Password is too weak. Please use at least 6 characters.');
+      } else if (msg.contains('network') || msg.contains('socket') || msg.contains('connection')) {
+        setError('No internet connection. Please check your network and try again.');
+      } else {
+        setError('Registration failed. Please try again.');
+      }
       return false;
     }
   }

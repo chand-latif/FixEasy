@@ -42,15 +42,40 @@ class AuthRepository {
     final user = _supabase.auth.currentUser;
     if (user == null) throw Exception('Not authenticated');
 
-    final data = await _supabase
+    var data = await _supabase
         .from('profiles')
         .select('*, company_profiles(id)')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
 
-    final companies = (data['company_profiles'] as List?) ?? [];
-    final hasCompany = companies.isNotEmpty;
-    final companyId = hasCompany ? companies.first['id'] as int : null;
+    // Trigger may have failed silently — create the profile from auth metadata
+    if (data == null) {
+      final meta = user.userMetadata ?? {};
+      await _supabase.from('profiles').insert({
+        'id': user.id,
+        'first_name': meta['first_name'],
+        'last_name': meta['last_name'],
+        'phone_number': meta['phone_number'],
+        'user_type': meta['user_type'] ?? 'Customer',
+      });
+      data = await _supabase
+          .from('profiles')
+          .select('*, company_profiles(id)')
+          .eq('id', user.id)
+          .single();
+    }
+
+    // PostgREST returns a single object (not array) when the FK has a UNIQUE constraint
+    final companyRaw = data['company_profiles'];
+    bool hasCompany = false;
+    int? companyId;
+    if (companyRaw is Map<String, dynamic>) {
+      hasCompany = true;
+      companyId = companyRaw['id'] as int?;
+    } else if (companyRaw is List && companyRaw.isNotEmpty) {
+      hasCompany = true;
+      companyId = companyRaw.first['id'] as int?;
+    }
 
     return UserModel(
       userId: user.id,

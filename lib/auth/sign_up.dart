@@ -218,6 +218,7 @@ class _SignUpState extends State<SignUp> {
     if (!mounted) return;
 
     if (success) {
+      final registeredEmail = emailController.text.trim();
       nameController.clear();
       emailController.clear();
       phoneController.clear();
@@ -230,8 +231,8 @@ class _SignUpState extends State<SignUp> {
         builder: (context) => AlertDialog(
           title: Text('Registration Successful!'),
           content: Text(
-            'A confirmation email has been sent to ${emailController.text}. '
-            'Please check your inbox and verify your email before signing in.',
+            'A confirmation email has been sent to $registeredEmail. '
+            'Please check your inbox and tap the link to verify your email before signing in.',
           ),
           actions: [
             TextButton(

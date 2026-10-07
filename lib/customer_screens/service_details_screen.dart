@@ -83,26 +83,28 @@ class ServiceDetailsScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Service Image
-                if (service['serviceImage'] != null)
-                  GestureDetector(
-                    onTap:
-                        () => ImageViewer.showFullScreenImage(
-                          context,
-                          'https://fixease.pk${service['serviceImage']}',
-                        ),
+                Builder(builder: (context) {
+                  final rawImg = service['image'] ?? service['serviceImage'];
+                  if (rawImg == null) return const SizedBox.shrink();
+                  final imgUrl = (rawImg as String).startsWith('http')
+                      ? rawImg
+                      : 'https://fixease.pk$rawImg';
+                  return GestureDetector(
+                    onTap: () =>
+                        ImageViewer.showFullScreenImage(context, imgUrl),
                     child: Image.network(
-                      'https://fixease.pk${service['serviceImage']}',
+                      imgUrl,
                       height: 250,
                       width: double.infinity,
                       fit: BoxFit.cover,
-                      errorBuilder:
-                          (_, __, ___) => Container(
-                            height: 250,
-                            color: Colors.grey[300],
-                            child: Icon(Icons.error, size: 50),
-                          ),
+                      errorBuilder: (_, __, ___) => Container(
+                        height: 250,
+                        color: Colors.grey[300],
+                        child: const Icon(Icons.error, size: 50),
+                      ),
                     ),
-                  ),
+                  );
+                }),
 
                 Padding(
                   padding: EdgeInsets.all(16),
@@ -110,7 +112,7 @@ class ServiceDetailsScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        service['providerName'] ?? 'N/A',
+                        service['name'] ?? service['providerName'] ?? 'N/A',
                         style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
@@ -158,7 +160,8 @@ class ServiceDetailsScreen extends StatelessWidget {
                             ),
                             SizedBox(height: 12),
                             Text(
-                              service['serviceDescription'] ??
+                              service['description'] ??
+                                  service['serviceDescription'] ??
                                   'No description available',
                               style: TextStyle(
                                 fontSize: 15,
@@ -375,7 +378,7 @@ class ServiceDetailsScreen extends StatelessWidget {
                                     color: Colors.grey[600],
                                   ),
                                 ),
-                                if ((service['serviceReview'] as List).length >
+                                if (((service['serviceReview'] as List?) ?? []).length >
                                     1)
                                   TextButton(
                                     onPressed: () {
@@ -439,7 +442,7 @@ class ServiceDetailsScreen extends StatelessWidget {
                             ),
 
                             // Show first review if exists
-                            if ((service['serviceReview'] as List)
+                            if (((service['serviceReview'] as List?) ?? [])
                                 .isNotEmpty) ...[
                               SizedBox(height: 16),
                               Container(
@@ -496,7 +499,7 @@ class ServiceDetailsScreen extends StatelessWidget {
                       MaterialPageRoute(
                         builder:
                             (context) => BookServiceScreen(
-                              serviceId: service['serviceId'],
+                              serviceId: service['id'] ?? service['serviceId'],
                             ),
                       ),
                     );

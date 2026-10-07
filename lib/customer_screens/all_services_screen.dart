@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import '../theme.dart';
 import 'service_details_screen.dart';
 import 'nav_bar_customer.dart';
 import 'package:fix_easy/widgets/image_viewer.dart';
 import 'package:shimmer/shimmer.dart';
+import '../data/repositories/service_repository.dart';
+import '../data/models/service_model.dart';
 
 class AllServicesScreen extends StatefulWidget {
   const AllServicesScreen({super.key});
@@ -15,17 +15,11 @@ class AllServicesScreen extends StatefulWidget {
 }
 
 class _AllServicesScreenState extends State<AllServicesScreen> {
+  final _serviceRepo = ServiceRepository();
   bool isLoading = true;
-  bool isSearching = false;
-  List<Map<String, dynamic>> services = [];
-  List<Map<String, dynamic>> searchResults = [];
+  List<ServiceModel> services = [];
+  List<ServiceModel> filteredServices = [];
   final searchController = TextEditingController();
-
-  @override
-  void dispose() {
-    searchController.dispose();
-    super.dispose();
-  }
 
   @override
   void initState() {
@@ -33,67 +27,55 @@ class _AllServicesScreenState extends State<AllServicesScreen> {
     fetchAllServices();
   }
 
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> fetchAllServices() async {
     try {
-      final response = await http.get(
-        Uri.parse(
-          'https://fixease.pk/api/CompanyServices/getListOfCompanyServices',
-        ),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+      final result = await _serviceRepo.getAllPublishedServices();
+      if (mounted) {
         setState(() {
-          services = List<Map<String, dynamic>>.from(data['data']);
+          services = result;
+          filteredServices = result;
           isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() => isLoading = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error loading services: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to load services. Please check your internet connection and try again.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
       }
     }
   }
 
-  Future<void> searchServices(String tag) async {
-    if (tag.isEmpty) {
-      setState(() {
-        isSearching = false;
-        searchResults.clear();
-      });
-      return;
-    }
-
-    setState(() => isSearching = true);
-    try {
-      final response = await http.get(
-        Uri.parse('https://fixease.pk/api/CompanyServices/search?tag=$tag'),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          searchResults = List<Map<String, dynamic>>.from(data['data']);
-        });
+  void searchServices(String query) {
+    final q = query.trim().toLowerCase();
+    setState(() {
+      if (q.isEmpty) {
+        filteredServices = services;
+      } else {
+        filteredServices = services.where((s) {
+          return s.serviceName.toLowerCase().contains(q) ||
+              (s.serviceDescription?.toLowerCase().contains(q) ?? false) ||
+              (s.categoryName?.toLowerCase().contains(q) ?? false) ||
+              (s.companyName?.toLowerCase().contains(q) ?? false);
+        }).toList();
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error searching services: $e')));
-      }
-    } finally {
-      setState(() => isLoading = false);
-    }
+    });
   }
 
   Widget _buildServiceShimmer() {
     return Card(
       color: Colors.white,
-      margin: EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 16),
       child: Shimmer.fromColors(
         baseColor: Colors.grey[300]!,
         highlightColor: Colors.grey[100]!,
@@ -102,7 +84,7 @@ class _AllServicesScreenState extends State<AllServicesScreen> {
           children: [
             Container(height: 120, color: Colors.white),
             Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -113,9 +95,9 @@ class _AllServicesScreenState extends State<AllServicesScreen> {
                       Container(width: 80, height: 20, color: Colors.white),
                     ],
                   ),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
                   Container(height: 16, color: Colors.white),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   Container(height: 16, width: 200, color: Colors.white),
                 ],
               ),
@@ -126,304 +108,268 @@ class _AllServicesScreenState extends State<AllServicesScreen> {
     );
   }
 
+  Map<String, dynamic> _toServiceMap(ServiceModel s) {
+    return {
+      'id': s.serviceId,
+      'serviceId': s.serviceId,
+      'serviceName': s.serviceName,
+      'providerName': s.serviceName,
+      'serviceDescription': s.serviceDescription,
+      'categoryName': s.categoryName,
+      'categoryId': s.categoryId,
+      'serviceImage': s.serviceImage,
+      'price': s.price,
+      'companyName': s.companyName,
+      'companyId': s.companyId,
+      'is_published': s.isPublished,
+      'serviceRating': {
+        'averageRating': s.rating?.averageRating ?? 0.0,
+        'totalRatings': s.rating?.totalRatings ?? 0,
+      },
+      'contactNumber': null,
+      'address': null,
+      'serviceTags': null,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Text('All Services'),
+        title: const Text('All Services'),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
       ),
       body: Column(
         children: [
           Padding(
-            padding: EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
             child: Material(
               elevation: 4,
               shadowColor: Colors.black26,
               borderRadius: BorderRadius.circular(12),
-              child: AnimatedContainer(
-                duration: Duration(milliseconds: 200),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color:
-                        searchController.text.isNotEmpty
-                            ? AppColors.primary.withOpacity(0.5)
-                            : Colors.transparent,
-                  ),
+              child: TextField(
+                controller: searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search services by name or category...',
+                  hintStyle: TextStyle(color: Colors.grey[400], fontSize: 16),
+                  prefixIcon: Icon(Icons.search_rounded,
+                      color: searchController.text.isNotEmpty
+                          ? AppColors.primary
+                          : Colors.grey[400]),
+                  suffixIcon: searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: Icon(Icons.close_rounded,
+                              color: Colors.grey[400]),
+                          onPressed: () {
+                            searchController.clear();
+                            searchServices('');
+                          },
+                        )
+                      : null,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16),
                 ),
-                child: TextField(
-                  controller: searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Search services by keywords...',
-                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 16),
-                    prefixIcon: Icon(
-                      Icons.search_rounded,
-                      color:
-                          searchController.text.isNotEmpty
-                              ? AppColors.primary
-                              : Colors.grey[400],
-                    ),
-                    suffixIcon:
-                        searchController.text.isNotEmpty
-                            ? IconButton(
-                              icon: Icon(
-                                Icons.close_rounded,
-                                color: Colors.grey[400],
-                              ),
-                              splashRadius: 20,
-                              onPressed: () {
-                                searchController.clear();
-                                searchServices('');
-                              },
-                            )
-                            : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: const Color.fromARGB(
-                          255,
-                          175,
-                          233,
-                          230,
-                        ).withOpacity(0.5),
-                        width: 1,
-                      ),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: const Color.fromARGB(
-                          255,
-                          175,
-                          233,
-                          230,
-                        ).withOpacity(0.5),
-                        width: 1,
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: AppColors.primary.withOpacity(0.5),
-                        width: 1,
-                      ),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey[50],
-                    contentPadding: EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  style: TextStyle(fontSize: 16),
-                  onChanged: searchServices,
-                ),
+                style: const TextStyle(fontSize: 16),
+                onChanged: searchServices,
               ),
             ),
           ),
           Expanded(
-            child:
-                isLoading
-                    ? ListView.builder(
-                      padding: EdgeInsets.all(16),
-                      itemCount: 5,
-                      itemBuilder: (context, index) => _buildServiceShimmer(),
-                    )
-                    : (isSearching ? searchResults : services).isEmpty
+            child: isLoading
+                ? ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: 5,
+                    itemBuilder: (_, __) => _buildServiceShimmer(),
+                  )
+                : filteredServices.isEmpty
                     ? Center(
-                      child: Text(
-                        isSearching
-                            ? 'No services found'
-                            : 'No services available',
-                      ),
-                    )
-                    : ListView.builder(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      itemCount:
-                          isSearching ? searchResults.length : services.length,
-                      itemBuilder: (context, index) {
-                        final service =
-                            isSearching
-                                ? searchResults[index]
-                                : services[index];
-                        return GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder:
-                                    (context) =>
-                                        ServiceDetailsScreen(service: service),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.handyman_outlined,
+                                size: 64, color: Colors.grey[400]),
+                            const SizedBox(height: 16),
+                            Text(
+                              searchController.text.isNotEmpty
+                                  ? 'No services match your search'
+                                  : 'No services available yet',
+                              style: TextStyle(
+                                  color: Colors.grey[600], fontSize: 16),
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: fetchAllServices,
+                        child: ListView.builder(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: filteredServices.length,
+                          itemBuilder: (context, index) {
+                            final service = filteredServices[index];
+                            return GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ServiceDetailsScreen(
+                                      service: _toServiceMap(service),
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Card(
+                                color: Colors.white,
+                                margin: const EdgeInsets.only(bottom: 16),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    if (service.serviceImage != null &&
+                                        service.serviceImage!.isNotEmpty)
+                                      GestureDetector(
+                                        onTap: () =>
+                                            ImageViewer.showFullScreenImage(
+                                          context,
+                                          service.serviceImage!,
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              const BorderRadius.vertical(
+                                            top: Radius.circular(12),
+                                          ),
+                                          child: Image.network(
+                                            service.serviceImage!,
+                                            height: 150,
+                                            width: double.infinity,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) =>
+                                                Container(
+                                              height: 150,
+                                              color: Colors.grey[300],
+                                              child: const Icon(Icons.image,
+                                                  size: 50),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  service.serviceName,
+                                                  style: const TextStyle(
+                                                    fontSize: 18,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (service.categoryName != null)
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.primary
+                                                        .withValues(alpha: 0.1),
+                                                    borderRadius:
+                                                        BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    service.categoryName!,
+                                                    style: const TextStyle(
+                                                      color: AppColors.primary,
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                          if (service.companyName != null) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'by ${service.companyName}',
+                                              style: TextStyle(
+                                                  color: Colors.grey[600],
+                                                  fontSize: 13),
+                                            ),
+                                          ],
+                                          if (service.serviceDescription !=
+                                              null) ...[
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              service.serviceDescription!,
+                                              style: TextStyle(
+                                                  color: Colors.grey[600]),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                'PKR ${service.price.toStringAsFixed(0)}',
+                                                style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: AppColors.primary,
+                                                ),
+                                              ),
+                                              if (service.rating != null)
+                                                Row(
+                                                  children: [
+                                                    const Icon(Icons.star,
+                                                        color: Colors.amber,
+                                                        size: 16),
+                                                    Text(
+                                                      ' ${service.rating!.averageRating.toStringAsFixed(1)}',
+                                                      style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          fontSize: 13),
+                                                    ),
+                                                    Text(
+                                                      ' (${service.rating!.totalRatings})',
+                                                      style: TextStyle(
+                                                          color: Colors.grey,
+                                                          fontSize: 13),
+                                                    ),
+                                                  ],
+                                                ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             );
                           },
-                          child: Card(
-                            color: Colors.white,
-                            margin: EdgeInsets.only(bottom: 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (service['serviceImage'] != null)
-                                  GestureDetector(
-                                    onTap:
-                                        () => ImageViewer.showFullScreenImage(
-                                          context,
-                                          'https://fixease.pk${service['serviceImage']}',
-                                        ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.vertical(
-                                        top: Radius.circular(4),
-                                      ),
-                                      child: Image.network(
-                                        'https://fixease.pk${service['serviceImage']}',
-                                        height: 120,
-                                        width: double.infinity,
-                                        fit: BoxFit.cover,
-                                        errorBuilder:
-                                            (_, __, ___) => Container(
-                                              height: 120,
-                                              color: Colors.grey[300],
-                                              child: Icon(Icons.error),
-                                            ),
-                                      ),
-                                    ),
-                                  ),
-                                Padding(
-                                  padding: EdgeInsets.all(16),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            service['providerName'] ?? 'N/A',
-                                            style: TextStyle(
-                                              fontSize: 18,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          Container(
-                                            padding: EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.primary
-                                                  .withOpacity(0.1),
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              service['categoryName'] ?? 'N/A',
-                                              style: TextStyle(
-                                                color: AppColors.primary,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      SizedBox(height: 8),
-                                      Text(
-                                        service['serviceDescription'] ??
-                                            'No description',
-                                        style: TextStyle(
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
-                                      SizedBox(height: 16),
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            Icons.star,
-                                            color: Colors.amber,
-                                            size: 20,
-                                          ),
-                                          Text(
-                                            ' ${(service['serviceRating']?['averageRating'] ?? 0).toStringAsFixed(1)}',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          Text(
-                                            ' (${service['serviceRating']?['totalRatings'] ?? 0})',
-                                            style: TextStyle(
-                                              color: Colors.grey,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      SizedBox(height: 8),
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            Icons.phone,
-                                            size: 16,
-                                            color: Colors.grey,
-                                          ),
-                                          SizedBox(width: 4),
-                                          Text(
-                                            service['contactNumber'] ?? 'N/A',
-                                          ),
-                                          SizedBox(width: 16),
-                                          Icon(
-                                            Icons.location_on,
-                                            size: 16,
-                                            color: Colors.grey,
-                                          ),
-                                          SizedBox(width: 4),
-                                          Expanded(
-                                            child: Text(
-                                              service['address'] ?? 'N/A',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      if (service['serviceTags'] != null) ...[
-                                        SizedBox(height: 8),
-                                        Wrap(
-                                          spacing: 4,
-                                          children:
-                                              (service['serviceTags'] as String)
-                                                  .split(' ')
-                                                  .map(
-                                                    (tag) => Chip(
-                                                      label: Text(
-                                                        tag,
-                                                        style: TextStyle(
-                                                          fontSize: 12,
-                                                        ),
-                                                      ),
-                                                      backgroundColor: AppColors
-                                                          .primary
-                                                          .withOpacity(0.1),
-                                                      labelStyle: TextStyle(
-                                                        color:
-                                                            AppColors.primary,
-                                                      ),
-                                                      materialTapTargetSize:
-                                                          MaterialTapTargetSize
-                                                              .shrinkWrap,
-                                                    ),
-                                                  )
-                                                  .toList(),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                        ),
+                      ),
           ),
         ],
       ),
